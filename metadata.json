@@ -1,0 +1,6 @@
+{
+  "name": "DeskClock",
+  "description": "Minimalist high-precision smart kiosk clock with 7-segment glowing display, architectural analog faces, and hourly chime bells.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
