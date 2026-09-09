@@ -10,11 +10,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,11 +43,14 @@ import com.example.ui.clockfaces.SevenSegmentClockView
 import com.example.ui.clockfaces.SplitFlapClockView
 import com.example.ui.clockfaces.SwissAnalogClockView
 import com.example.ui.clockfaces.TypographicBauhausClockView
+import com.example.ui.components.BackgroundVideoLayer
 import com.example.ui.components.ChimeSettingsDialog
 import com.example.ui.components.ControlDock
 import com.example.ui.components.DeskTimerDialog
 import com.example.ui.components.FaceAndPaletteDialog
+import com.example.ui.components.WeatherAndWarningDialog
 import com.example.ui.components.WeatherBadge
+import com.example.ui.components.WeatherWarningBanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -58,11 +65,19 @@ fun DeskClockMainScreen(
     val timeState by viewModel.timeState.collectAsState()
     val timerState by viewModel.timerState.collectAsState()
     val weatherState by viewModel.weatherState.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+    val isDetectingLocation by viewModel.isDetectingLocation.collectAsState()
+    val scheduledChimes by viewModel.scheduledChimes.collectAsState()
+    val customAudioList by viewModel.customAudioList.collectAsState()
+    val customVideoList by viewModel.customVideoList.collectAsState()
+    val activeBackgroundVideo by viewModel.activeBackgroundVideo.collectAsState()
 
     // Dialog visibility states
     var showChimeSettings by remember { mutableStateOf(false) }
     var showFacePicker by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
+    var showWeatherDialog by remember { mutableStateOf(false) }
 
     // Kiosk lock notification banner
     var kioskWarningText by remember { mutableStateOf<String?>(null) }
@@ -86,11 +101,17 @@ fun DeskClockMainScreen(
             .background(bgColor)
             .testTag("desk_clock_main_screen")
     ) {
+        // 0. Active Background Video Layer (Rendered when chime triggers or during video preview)
+        BackgroundVideoLayer(
+            activeVideo = activeBackgroundVideo,
+            onDismiss = { viewModel.dismissBackgroundVideo() }
+        )
+
         // Burn-in prevention container (subtle 1-2 pixel drift)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 68.dp, top = 28.dp)
+                .padding(bottom = 68.dp, top = 36.dp)
                 .offset(x = timeState.burnInShiftX.dp, y = timeState.burnInShiftY.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -118,37 +139,60 @@ fun DeskClockMainScreen(
             }
         }
 
-        // Live Weather Badge at Top Center (when enabled)
-        if (preferences.showWeather && !preferences.isNightMode) {
-            WeatherBadge(
-                weather = weatherState,
-                accentColor = preferences.colorPalette.primary,
-                onClick = { viewModel.refreshWeather() },
+        // Top Information Bar: Weather Badge, Warning Badges, Active Timer
+        if (!preferences.isNightMode) {
+            Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .align(Alignment.TopStart)
-                    .padding(start = 24.dp, top = 16.dp)
-            )
-        }
-
-        // Active timer indicator tag at top right if running
-        if (timerState.remainingSeconds > 0) {
-            val minutes = timerState.remainingSeconds / 60
-            val seconds = timerState.remainingSeconds % 60
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 24.dp, top = 16.dp)
-                    .background(Color(0x33FFFFFF), RoundedCornerShape(12.dp))
-                    .clickable { showTimerDialog = true }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(start = 24.dp, end = 24.dp, top = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = String.format(java.util.Locale.US, "TIMER %02d:%02d", minutes, seconds),
-                    color = preferences.colorPalette.primary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                // Left: Weather Badge
+                if (preferences.showWeather) {
+                    WeatherBadge(
+                        weather = weatherState,
+                        accentColor = preferences.colorPalette.primary,
+                        onClick = { showWeatherDialog = true }
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+
+                // Center: Weather Warning Pills (matching user's reference image)
+                if (preferences.showWarnings && weatherState.warnings.isNotEmpty()) {
+                    WeatherWarningBanner(
+                        warnings = weatherState.warnings,
+                        regionName = preferences.selectedCityName,
+                        onClick = { showWeatherDialog = true },
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+
+                // Right: Active timer indicator tag if running
+                if (timerState.remainingSeconds > 0) {
+                    val minutes = timerState.remainingSeconds / 60
+                    val seconds = timerState.remainingSeconds % 60
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0x33FFFFFF), RoundedCornerShape(12.dp))
+                            .clickable { showTimerDialog = true }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = String.format(java.util.Locale.US, "TIMER %02d:%02d", minutes, seconds),
+                            color = preferences.colorPalette.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
             }
         }
 
@@ -159,7 +203,7 @@ fun DeskClockMainScreen(
             onOpenPalettePicker = { showFacePicker = true },
             onOpenChimeSettings = { showChimeSettings = true },
             onOpenTimer = { showTimerDialog = true },
-            onToggleWeather = { viewModel.toggleShowWeather() },
+            onToggleWeather = { showWeatherDialog = true },
             onToggleNightMode = { viewModel.toggleNightMode() },
             onToggleKioskLock = {
                 viewModel.toggleKioskLock()
@@ -184,7 +228,7 @@ fun DeskClockMainScreen(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 16.dp)
+                .padding(top = 50.dp)
         ) {
             kioskWarningText?.let { text ->
                 Box(
@@ -206,11 +250,27 @@ fun DeskClockMainScreen(
         if (showChimeSettings) {
             ChimeSettingsDialog(
                 preferences = preferences,
+                scheduledChimes = scheduledChimes,
+                customAudioList = customAudioList,
+                customVideoList = customVideoList,
                 onDismiss = { showChimeSettings = false },
+                onSaveChime = { viewModel.saveScheduledChime(it) },
+                onDeleteChime = { viewModel.deleteScheduledChime(it) },
+                onToggleChime = { viewModel.toggleScheduledChime(it) },
+                onImportCustomAudio = { uri, onResult -> viewModel.importCustomAudio(uri, onResult) },
+                onDeleteCustomAudio = { viewModel.deleteCustomAudio(it) },
+                onImportCustomVideo = { uri, onResult -> viewModel.importCustomVideo(uri, onResult) },
+                onDeleteCustomVideo = { viewModel.deleteCustomVideo(it) },
+                onTestPlayChime = { viewModel.testPlayScheduledChime(it) },
+                onTestPlayAudioFile = { viewModel.testPlayCustomAudio(it) },
+                onPreviewVideo = { videoType, path, name, playAudio, duration ->
+                    viewModel.previewBackgroundVideo(videoType, path, name, playAudio, duration)
+                },
+                onTestSound = { viewModel.testChimeSound(it) },
+                onStopAudio = { viewModel.stopAudioPlayback() },
                 onToggleHourlyChime = { viewModel.setHourlyChime(it) },
                 onToggleHalfHourlyChime = { viewModel.setHalfHourlyChime(it) },
                 onSelectSound = { viewModel.selectChimeSound(it) },
-                onTestSound = { viewModel.testChimeSound(it) },
                 onVolumeChange = { viewModel.setChimeVolume(it) },
                 onHoursChange = { start, end -> viewModel.setChimeHours(start, end) }
             )
@@ -236,6 +296,34 @@ fun DeskClockMainScreen(
                 onAddMinutes = { viewModel.addTimerMinutes(it) },
                 onTogglePause = { viewModel.toggleTimerPause() },
                 onReset = { viewModel.resetTimer() }
+            )
+        }
+
+        if (showWeatherDialog) {
+            WeatherAndWarningDialog(
+                preferences = preferences,
+                weather = weatherState,
+                searchResults = searchResults,
+                isSearching = isSearching,
+                isDetectingLocation = isDetectingLocation,
+                onDismiss = {
+                    showWeatherDialog = false
+                    viewModel.clearSearchResults()
+                },
+                onSearch = { viewModel.searchMunicipalities(it) },
+                onClearSearch = { viewModel.clearSearchResults() },
+                onSelectMunicipality = {
+                    viewModel.selectMunicipality(it)
+                    showWeatherDialog = false
+                },
+                onSelectPrefecture = { viewModel.selectPrefecture(it) },
+                onDetectLocation = { onResult ->
+                    viewModel.detectAndSetCurrentLocation(onResult)
+                },
+                onToggleWeather = { viewModel.toggleShowWeather() },
+                onToggleWarnings = { viewModel.toggleShowWarnings() },
+                onToggleDemoWarnings = { viewModel.toggleDemoWarnings() },
+                onRefresh = { viewModel.refreshWeather() }
             )
         }
     }

@@ -66,6 +66,13 @@ data class ClockPreferencesState(
     val is24Hour: Boolean = true,
     val showSeconds: Boolean = true,
     val showWeather: Boolean = true,
+    val showWarnings: Boolean = true,
+    val selectedPrefecture: String = "東京都",
+    val selectedCityName: String = "東京都",
+    val customLatitude: Double? = null,
+    val customLongitude: Double? = null,
+    val isAutoLocationEnabled: Boolean = false,
+    val demoWarningsPreview: Boolean = false,
     val hourlyChimeEnabled: Boolean = true,
     val halfHourlyChimeEnabled: Boolean = false,
     val chimeSound: com.example.audio.ChimeSound = com.example.audio.ChimeSound.WESTMINSTER,
@@ -76,6 +83,17 @@ data class ClockPreferencesState(
     val isNightMode: Boolean = false,
     val burnInProtection: Boolean = true,
     val customLocationName: String = "Japan Standard Time (JST)"
+)
+
+enum class WarningSeverity {
+    ADVISORY,       // 注意報 (黄色)
+    WARNING,        // 警報 (赤色)
+    SPECIAL_WARNING // 特別警報 (紫/深紅)
+}
+
+data class WeatherWarning(
+    val title: String,
+    val severity: WarningSeverity = WarningSeverity.ADVISORY
 )
 
 enum class WeatherCondition(val label: String) {
@@ -89,11 +107,17 @@ enum class WeatherCondition(val label: String) {
 
 data class WeatherState(
     val cityName: String = "Tokyo",
+    val regionName: String = "東京都",
     val condition: WeatherCondition = WeatherCondition.CLEAR,
     val temperatureCelsius: Int = 22,
     val conditionText: String = "晴れ",
     val highTemp: Int = 25,
     val lowTemp: Int = 17,
     val humidityPercent: Int = 45,
-    val windSpeedKmH: Int = 8
+    val windSpeedKmH: Int = 8,
+    val warnings: List<WeatherWarning> = listOf(
+        WeatherWarning("レベル2 大雨注意報", WarningSeverity.ADVISORY),
+        WeatherWarning("レベル2 土砂災害注意報", WarningSeverity.ADVISORY),
+        WeatherWarning("雷注意報", WarningSeverity.ADVISORY)
+    )
 )
