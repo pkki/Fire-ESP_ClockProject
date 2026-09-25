@@ -17,6 +17,16 @@ object ChimeAudioPlayer {
         onComplete: (() -> Unit)? = null
     ) {
         stop()
+        if (chime.sourceType == ChimeAudioSourceType.NONE) {
+            // No audio configured (e.g. IR remote routine only, or silent video)
+            onComplete?.invoke()
+            return
+        }
+        if (chime.isVideoOnlyAudio) {
+            // Video plays its own audio track; no separate synthetic/audio chime needed
+            onComplete?.invoke()
+            return
+        }
         if (chime.sourceType == ChimeAudioSourceType.CUSTOM_FILE && !chime.customAudioPath.isNullOrEmpty()) {
             playCustomFile(chime.customAudioPath, chime.volume, onComplete)
         } else {
@@ -31,7 +41,8 @@ object ChimeAudioPlayer {
     ) {
         stop()
         val file = File(filePath)
-        if (!file.exists() || !file.canRead()) {
+        if (!file.exists()) {
+            android.util.Log.e("ChimeAudioPlayer", "Audio file does not exist: $filePath")
             onComplete?.invoke()
             return
         }
@@ -40,11 +51,13 @@ object ChimeAudioPlayer {
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
-                setDataSource(filePath)
+                java.io.FileInputStream(file).use { fis ->
+                    setDataSource(fis.fd)
+                }
                 setVolume(volume, volume)
                 setOnCompletionListener {
                     it.release()
@@ -52,19 +65,22 @@ object ChimeAudioPlayer {
                     isPlayingCustom = false
                     onComplete?.invoke()
                 }
-                setOnErrorListener { mp, _, _ ->
+                setOnErrorListener { mp, what, extra ->
+                    android.util.Log.e("ChimeAudioPlayer", "MediaPlayer error: what=$what, extra=$extra")
                     mp.release()
                     mediaPlayer = null
                     isPlayingCustom = false
                     onComplete?.invoke()
                     true
                 }
-                prepare()
-                start()
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    isPlayingCustom = true
+                }
+                prepareAsync()
             }
-            isPlayingCustom = true
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("ChimeAudioPlayer", "Exception in playCustomFile: $filePath", e)
             mediaPlayer?.release()
             mediaPlayer = null
             isPlayingCustom = false

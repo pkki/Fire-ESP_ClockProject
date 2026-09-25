@@ -54,6 +54,32 @@ object CustomAudioFileManager {
         }
     }
 
+    suspend fun saveAudioBytes(context: Context, originalName: String, data: ByteArray): CustomAudioItem? = withContext(Dispatchers.IO) {
+        try {
+            val storageDir = File(context.filesDir, "custom_chimes")
+            if (!storageDir.exists()) {
+                storageDir.mkdirs()
+            }
+
+            val id = UUID.randomUUID().toString()
+            val cleanName = originalName.ifBlank { "audio_${System.currentTimeMillis()}.mp3" }
+            val safeFileName = "${id}_${cleanName.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
+            val destFile = File(storageDir, safeFileName)
+
+            destFile.writeBytes(data)
+
+            return@withContext CustomAudioItem(
+                id = id,
+                name = cleanName,
+                filePath = destFile.absolutePath,
+                dateAdded = System.currentTimeMillis()
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext null
+        }
+    }
+
     suspend fun deleteAudioFile(filePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val file = File(filePath)

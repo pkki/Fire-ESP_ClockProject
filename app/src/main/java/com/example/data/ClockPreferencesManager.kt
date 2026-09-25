@@ -26,6 +26,7 @@ class ClockPreferencesManager(context: Context) {
         val faceName = prefs.getString("clock_face", ClockFace.SEVEN_SEGMENT.name)
         val paletteName = prefs.getString("color_palette", ColorPalette.ICE_WHITE.name)
         val soundName = prefs.getString("chime_sound", ChimeSound.WESTMINSTER.name)
+        val hourlySourceTypeStr = prefs.getString("hourly_chime_source_type", ChimeAudioSourceType.BUILT_IN.name)
 
         return ClockPreferencesState(
             clockFace = try { ClockFace.valueOf(faceName ?: "") } catch (_: Exception) { ClockFace.SEVEN_SEGMENT },
@@ -43,14 +44,163 @@ class ClockPreferencesManager(context: Context) {
             hourlyChimeEnabled = prefs.getBoolean("hourly_chime", true),
             halfHourlyChimeEnabled = prefs.getBoolean("half_hourly_chime", false),
             chimeSound = try { ChimeSound.valueOf(soundName ?: "") } catch (_: Exception) { ChimeSound.WESTMINSTER },
+            hourlyChimeSourceType = try { ChimeAudioSourceType.valueOf(hourlySourceTypeStr ?: "") } catch (_: Exception) { ChimeAudioSourceType.BUILT_IN },
+            hourlyCustomAudioId = prefs.getString("hourly_custom_audio_id", null),
+            hourlyCustomAudioName = prefs.getString("hourly_custom_audio_name", null),
+            hourlyCustomAudioPath = prefs.getString("hourly_custom_audio_path", null),
             chimeStartHour = prefs.getInt("chime_start_hour", 8),
             chimeEndHour = prefs.getInt("chime_end_hour", 22),
             chimeVolume = prefs.getFloat("chime_volume", 0.75f),
             isKioskLocked = prefs.getBoolean("kiosk_locked", true),
             isNightMode = prefs.getBoolean("night_mode", false),
             burnInProtection = prefs.getBoolean("burn_in_protection", true),
-            customLocationName = prefs.getString("location_name", "Japan Standard Time (JST)") ?: "Japan Standard Time (JST)"
+            customLocationName = prefs.getString("location_name", "Japan Standard Time (JST)") ?: "Japan Standard Time (JST)",
+            eewEnabled = prefs.getBoolean("eew_enabled", true),
+            eewMinScale = prefs.getInt("eew_min_scale", 45),
+            eewSoundEnabled = prefs.getBoolean("eew_sound_enabled", true),
+            eewVibrationEnabled = prefs.getBoolean("eew_vibration_enabled", true),
+            eewSoundMode = prefs.getString("eew_sound_mode", "SYNTH_BEEP") ?: "SYNTH_BEEP",
+            eewLightweightMap = prefs.getBoolean("eew_lightweight_map", true),
+            espSensorEnabled = prefs.getBoolean("esp_sensor_enabled", true),
+            espConnectionMode = prefs.getString("esp_connection_mode", "BLE") ?: "BLE",
+            espBleDeviceName = prefs.getString("esp_ble_device_name", "ESP32C3-Sensor") ?: "ESP32C3-Sensor",
+            espBaudRate = prefs.getInt("esp_baud_rate", 115200),
+            espSensorHost = prefs.getString("esp_sensor_host", "192.168.1.100") ?: "192.168.1.100",
+            espSensorPort = prefs.getInt("esp_sensor_port", 80),
+            espSensorIntervalSeconds = prefs.getInt("esp_sensor_interval", 5),
+            espTempOffset = prefs.getFloat("esp_temp_offset", 0.0f),
+            espHumOffset = prefs.getFloat("esp_hum_offset", 0.0f),
+            espPressOffset = prefs.getFloat("esp_press_offset", 0.0f),
+            showEspSensorOnClock = prefs.getBoolean("show_esp_sensor_on_clock", true),
+            alarmEnabled = prefs.getBoolean("alarm_enabled", false),
+            alarmHour = prefs.getInt("alarm_hour", 7),
+            alarmMinute = prefs.getInt("alarm_minute", 0),
+            alarmDays = prefs.getStringSet("alarm_days", setOf("1", "2", "3", "4", "5", "6", "7"))?.mapNotNull { it.toIntOrNull() }?.toSet() ?: setOf(1, 2, 3, 4, 5, 6, 7),
+            alarmSoundType = prefs.getString("alarm_sound_type", "DIGITAL_BEEP") ?: "DIGITAL_BEEP",
+            alarmVolume = prefs.getFloat("alarm_volume", 0.85f),
+            alarmSnoozeMinutes = prefs.getInt("alarm_snooze_minutes", 5),
+            alarmVibration = prefs.getBoolean("alarm_vibration", true),
+            alarmTriggerIr = prefs.getBoolean("alarm_trigger_ir", false),
+            fireAlertEnabled = prefs.getBoolean("fire_alert_enabled", true),
+            fireAlertSoundEnabled = prefs.getBoolean("fire_alert_sound_enabled", true),
+            fireAlertVibration = prefs.getBoolean("fire_alert_vibration", true),
+            fireAlertVoiceTts = prefs.getBoolean("fire_alert_voice_tts", true),
+            mq2SensitivityThreshold = prefs.getInt("mq2_sensitivity_threshold", 900)
         )
+    }
+
+    fun updatePreferences(state: ClockPreferencesState) {
+        prefs.edit()
+            .putBoolean("eew_enabled", state.eewEnabled)
+            .putInt("eew_min_scale", state.eewMinScale)
+            .putBoolean("eew_sound_enabled", state.eewSoundEnabled)
+            .putBoolean("eew_vibration_enabled", state.eewVibrationEnabled)
+            .putString("eew_sound_mode", state.eewSoundMode)
+            .putBoolean("eew_lightweight_map", state.eewLightweightMap)
+            .putBoolean("esp_sensor_enabled", state.espSensorEnabled)
+            .putString("esp_connection_mode", state.espConnectionMode)
+            .putString("esp_ble_device_name", state.espBleDeviceName)
+            .putInt("esp_baud_rate", state.espBaudRate)
+            .putString("esp_sensor_host", state.espSensorHost)
+            .putInt("esp_sensor_port", state.espSensorPort)
+            .putInt("esp_sensor_interval", state.espSensorIntervalSeconds)
+            .putFloat("esp_temp_offset", state.espTempOffset)
+            .putFloat("esp_hum_offset", state.espHumOffset)
+            .putFloat("esp_press_offset", state.espPressOffset)
+            .putBoolean("show_esp_sensor_on_clock", state.showEspSensorOnClock)
+            .putBoolean("alarm_enabled", state.alarmEnabled)
+            .putInt("alarm_hour", state.alarmHour)
+            .putInt("alarm_minute", state.alarmMinute)
+            .putStringSet("alarm_days", state.alarmDays.map { it.toString() }.toSet())
+            .putString("alarm_sound_type", state.alarmSoundType)
+            .putFloat("alarm_volume", state.alarmVolume)
+            .putInt("alarm_snooze_minutes", state.alarmSnoozeMinutes)
+            .putBoolean("alarm_vibration", state.alarmVibration)
+            .putBoolean("alarm_trigger_ir", state.alarmTriggerIr)
+            .putBoolean("fire_alert_enabled", state.fireAlertEnabled)
+            .putBoolean("fire_alert_sound_enabled", state.fireAlertSoundEnabled)
+            .putBoolean("fire_alert_vibration", state.fireAlertVibration)
+            .putBoolean("fire_alert_voice_tts", state.fireAlertVoiceTts)
+            .putInt("mq2_sensitivity_threshold", state.mq2SensitivityThreshold)
+            .apply()
+        _state.value = state
+    }
+
+    fun updateEspSensorSettings(
+        enabled: Boolean,
+        mode: String,
+        bleDeviceName: String = _state.value.espBleDeviceName,
+        baud: Int,
+        host: String,
+        port: Int,
+        intervalSeconds: Int,
+        tempOffset: Float,
+        humOffset: Float,
+        pressOffset: Float,
+        showOnClock: Boolean
+    ) {
+        prefs.edit()
+            .putBoolean("esp_sensor_enabled", enabled)
+            .putString("esp_connection_mode", mode)
+            .putString("esp_ble_device_name", bleDeviceName)
+            .putInt("esp_baud_rate", baud)
+            .putString("esp_sensor_host", host)
+            .putInt("esp_sensor_port", port)
+            .putInt("esp_sensor_interval", intervalSeconds)
+            .putFloat("esp_temp_offset", tempOffset)
+            .putFloat("esp_hum_offset", humOffset)
+            .putFloat("esp_press_offset", pressOffset)
+            .putBoolean("show_esp_sensor_on_clock", showOnClock)
+            .apply()
+        _state.value = _state.value.copy(
+            espSensorEnabled = enabled,
+            espConnectionMode = mode,
+            espBleDeviceName = bleDeviceName,
+            espBaudRate = baud,
+            espSensorHost = host,
+            espSensorPort = port,
+            espSensorIntervalSeconds = intervalSeconds,
+            espTempOffset = tempOffset,
+            espHumOffset = humOffset,
+            espPressOffset = pressOffset,
+            showEspSensorOnClock = showOnClock
+        )
+    }
+
+    fun updateEewSettings(
+        enabled: Boolean,
+        minScale: Int,
+        soundEnabled: Boolean,
+        vibrationEnabled: Boolean,
+        soundMode: String = _state.value.eewSoundMode,
+        lightweightMap: Boolean = _state.value.eewLightweightMap
+    ) {
+        prefs.edit()
+            .putBoolean("eew_enabled", enabled)
+            .putInt("eew_min_scale", minScale)
+            .putBoolean("eew_sound_enabled", soundEnabled)
+            .putBoolean("eew_vibration_enabled", vibrationEnabled)
+            .putString("eew_sound_mode", soundMode)
+            .putBoolean("eew_lightweight_map", lightweightMap)
+            .apply()
+        _state.value = _state.value.copy(
+            eewEnabled = enabled,
+            eewMinScale = minScale,
+            eewSoundEnabled = soundEnabled,
+            eewVibrationEnabled = vibrationEnabled,
+            eewSoundMode = soundMode,
+            eewLightweightMap = lightweightMap
+        )
+    }
+
+    fun updateEewSoundMode(soundMode: String) {
+        prefs.edit().putString("eew_sound_mode", soundMode).apply()
+        _state.value = _state.value.copy(eewSoundMode = soundMode)
+    }
+
+    fun updateEewLightweightMap(enabled: Boolean) {
+        prefs.edit().putBoolean("eew_lightweight_map", enabled).apply()
+        _state.value = _state.value.copy(eewLightweightMap = enabled)
     }
 
     fun updateClockFace(face: ClockFace) {
@@ -136,8 +286,53 @@ class ClockPreferencesManager(context: Context) {
     }
 
     fun updateChimeSound(sound: ChimeSound) {
-        prefs.edit().putString("chime_sound", sound.name).apply()
-        _state.value = _state.value.copy(chimeSound = sound)
+        prefs.edit()
+            .putString("chime_sound", sound.name)
+            .putString("hourly_chime_source_type", ChimeAudioSourceType.BUILT_IN.name)
+            .apply()
+        _state.value = _state.value.copy(
+            chimeSound = sound,
+            hourlyChimeSourceType = ChimeAudioSourceType.BUILT_IN
+        )
+    }
+
+    fun updateHourlyCustomAudio(audio: CustomAudioItem) {
+        prefs.edit()
+            .putString("hourly_chime_source_type", ChimeAudioSourceType.CUSTOM_FILE.name)
+            .putString("hourly_custom_audio_id", audio.id)
+            .putString("hourly_custom_audio_name", audio.name)
+            .putString("hourly_custom_audio_path", audio.filePath)
+            .apply()
+        _state.value = _state.value.copy(
+            hourlyChimeSourceType = ChimeAudioSourceType.CUSTOM_FILE,
+            hourlyCustomAudioId = audio.id,
+            hourlyCustomAudioName = audio.name,
+            hourlyCustomAudioPath = audio.filePath
+        )
+    }
+
+    fun updateHourlyChimeSoundDetailed(
+        sourceType: ChimeAudioSourceType,
+        builtInSound: ChimeSound = ChimeSound.WESTMINSTER,
+        customId: String? = null,
+        customName: String? = null,
+        customPath: String? = null
+    ) {
+        val editor = prefs.edit()
+            .putString("hourly_chime_source_type", sourceType.name)
+            .putString("chime_sound", builtInSound.name)
+        if (customId != null) editor.putString("hourly_custom_audio_id", customId) else editor.remove("hourly_custom_audio_id")
+        if (customName != null) editor.putString("hourly_custom_audio_name", customName) else editor.remove("hourly_custom_audio_name")
+        if (customPath != null) editor.putString("hourly_custom_audio_path", customPath) else editor.remove("hourly_custom_audio_path")
+        editor.apply()
+
+        _state.value = _state.value.copy(
+            hourlyChimeSourceType = sourceType,
+            chimeSound = builtInSound,
+            hourlyCustomAudioId = customId,
+            hourlyCustomAudioName = customName,
+            hourlyCustomAudioPath = customPath
+        )
     }
 
     fun updateChimeHours(start: Int, end: Int) {
@@ -162,9 +357,102 @@ class ClockPreferencesManager(context: Context) {
         _state.value = _state.value.copy(isNightMode = newValue)
     }
 
+    fun updateNightMode(enabled: Boolean) {
+        prefs.edit().putBoolean("night_mode", enabled).apply()
+        _state.value = _state.value.copy(isNightMode = enabled)
+    }
+
+    fun updateKioskLock(locked: Boolean) {
+        prefs.edit().putBoolean("kiosk_locked", locked).apply()
+        _state.value = _state.value.copy(isKioskLocked = locked)
+    }
+
+    fun updateBurnInProtection(enabled: Boolean) {
+        prefs.edit().putBoolean("burn_in_protection", enabled).apply()
+        _state.value = _state.value.copy(burnInProtection = enabled)
+    }
+
+    fun updateShowWarnings(enabled: Boolean) {
+        prefs.edit().putBoolean("show_warnings", enabled).apply()
+        _state.value = _state.value.copy(showWarnings = enabled)
+    }
+
+    fun updateShowWeather(enabled: Boolean) {
+        prefs.edit().putBoolean("show_weather", enabled).apply()
+        _state.value = _state.value.copy(showWeather = enabled)
+    }
+
+    fun update24Hour(is24: Boolean) {
+        prefs.edit().putBoolean("is_24_hour", is24).apply()
+        _state.value = _state.value.copy(is24Hour = is24)
+    }
+
+    fun updateShowSeconds(show: Boolean) {
+        prefs.edit().putBoolean("show_seconds", show).apply()
+        _state.value = _state.value.copy(showSeconds = show)
+    }
+
     fun updateLocationName(name: String) {
         prefs.edit().putString("location_name", name).apply()
         _state.value = _state.value.copy(customLocationName = name)
+    }
+
+    fun updateAlarmPreferences(
+        enabled: Boolean,
+        hour: Int,
+        minute: Int,
+        days: Set<Int>,
+        soundType: String,
+        volume: Float,
+        snoozeMinutes: Int,
+        vibration: Boolean,
+        triggerIr: Boolean
+    ) {
+        prefs.edit()
+            .putBoolean("alarm_enabled", enabled)
+            .putInt("alarm_hour", hour)
+            .putInt("alarm_minute", minute)
+            .putStringSet("alarm_days", days.map { it.toString() }.toSet())
+            .putString("alarm_sound_type", soundType)
+            .putFloat("alarm_volume", volume)
+            .putInt("alarm_snooze_minutes", snoozeMinutes)
+            .putBoolean("alarm_vibration", vibration)
+            .putBoolean("alarm_trigger_ir", triggerIr)
+            .apply()
+        _state.value = _state.value.copy(
+            alarmEnabled = enabled,
+            alarmHour = hour,
+            alarmMinute = minute,
+            alarmDays = days,
+            alarmSoundType = soundType,
+            alarmVolume = volume,
+            alarmSnoozeMinutes = snoozeMinutes,
+            alarmVibration = vibration,
+            alarmTriggerIr = triggerIr
+        )
+    }
+
+    fun updateFireAlertPreferences(
+        enabled: Boolean,
+        soundEnabled: Boolean,
+        vibration: Boolean,
+        voiceTts: Boolean,
+        sensitivityThreshold: Int
+    ) {
+        prefs.edit()
+            .putBoolean("fire_alert_enabled", enabled)
+            .putBoolean("fire_alert_sound_enabled", soundEnabled)
+            .putBoolean("fire_alert_vibration", vibration)
+            .putBoolean("fire_alert_voice_tts", voiceTts)
+            .putInt("mq2_sensitivity_threshold", sensitivityThreshold)
+            .apply()
+        _state.value = _state.value.copy(
+            fireAlertEnabled = enabled,
+            fireAlertSoundEnabled = soundEnabled,
+            fireAlertVibration = vibration,
+            fireAlertVoiceTts = voiceTts,
+            mq2SensitivityThreshold = sensitivityThreshold
+        )
     }
 
     // --- Scheduled Chimes & Custom Audio Persistence ---
@@ -247,7 +535,10 @@ class ClockPreferencesManager(context: Context) {
                         customVideoName = obj.optString("customVideoName").ifEmpty { null },
                         customVideoPath = obj.optString("customVideoPath").ifEmpty { null },
                         videoDurationSeconds = obj.optInt("videoDurationSeconds", 60),
-                        playVideoAudio = obj.optBoolean("playVideoAudio", false)
+                        playVideoAudio = obj.optBoolean("playVideoAudio", false),
+                        irSendEnabled = obj.optBoolean("irSendEnabled", false),
+                        irButtonId = obj.optString("irButtonId").ifEmpty { null },
+                        irButtonName = obj.optString("irButtonName").ifEmpty { null }
                     )
                 )
             }
@@ -278,6 +569,9 @@ class ClockPreferencesManager(context: Context) {
                 put("customVideoPath", item.customVideoPath ?: "")
                 put("videoDurationSeconds", item.videoDurationSeconds)
                 put("playVideoAudio", item.playVideoAudio)
+                put("irSendEnabled", item.irSendEnabled)
+                put("irButtonId", item.irButtonId ?: "")
+                put("irButtonName", item.irButtonName ?: "")
 
                 val daysArray = JSONArray()
                 item.daysOfWeek.forEach { daysArray.put(it) }
@@ -358,6 +652,31 @@ class ClockPreferencesManager(context: Context) {
         _customAudioList.value = current
     }
 
+    fun renameCustomAudioItem(id: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        val current = _customAudioList.value.map {
+            if (it.id == id) it.copy(name = trimmed) else it
+        }
+        saveCustomAudioListToPrefs(current)
+        _customAudioList.value = current
+
+        // Also update any scheduled chime references
+        val updatedChimes = _scheduledChimes.value.map { chime ->
+            if (chime.customAudioId == id) chime.copy(customAudioName = trimmed) else chime
+        }
+        if (updatedChimes != _scheduledChimes.value) {
+            saveScheduledChimesToPrefs(updatedChimes)
+            _scheduledChimes.value = updatedChimes
+        }
+
+        // Also update hourly chime if matched
+        if (_state.value.hourlyCustomAudioId == id) {
+            prefs.edit().putString("hourly_custom_audio_name", trimmed).apply()
+            _state.value = _state.value.copy(hourlyCustomAudioName = trimmed)
+        }
+    }
+
     fun deleteCustomAudioItem(id: String) {
         val current = _customAudioList.value.filter { it.id != id }
         saveCustomAudioListToPrefs(current)
@@ -412,9 +731,60 @@ class ClockPreferencesManager(context: Context) {
         _customVideoList.value = current
     }
 
+    fun renameCustomVideoItem(id: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return
+        val current = _customVideoList.value.map {
+            if (it.id == id) it.copy(name = trimmed) else it
+        }
+        saveCustomVideoListToPrefs(current)
+        _customVideoList.value = current
+
+        // Also update any scheduled chime references
+        val updatedChimes = _scheduledChimes.value.map { chime ->
+            if (chime.customVideoId == id) chime.copy(customVideoName = trimmed) else chime
+        }
+        if (updatedChimes != _scheduledChimes.value) {
+            saveScheduledChimesToPrefs(updatedChimes)
+            _scheduledChimes.value = updatedChimes
+        }
+    }
+
     fun deleteCustomVideoItem(id: String) {
         val current = _customVideoList.value.filter { it.id != id }
         saveCustomVideoListToPrefs(current)
         _customVideoList.value = current
+    }
+
+    // --- IP Camera Configuration ---
+
+    private val _ipCameraConfig = MutableStateFlow(loadIpCameraConfig())
+    val ipCameraConfig: StateFlow<com.example.camera.IpCameraConfig> = _ipCameraConfig.asStateFlow()
+
+    private fun loadIpCameraConfig(): com.example.camera.IpCameraConfig {
+        return com.example.camera.IpCameraConfig(
+            isEnabled = prefs.getBoolean("ipcam_enabled", false),
+            port = prefs.getInt("ipcam_port", 8080),
+            useFrontCamera = prefs.getBoolean("ipcam_front", true),
+            targetFps = prefs.getInt("ipcam_fps", 10),
+            resolutionWidth = prefs.getInt("ipcam_width", 640),
+            resolutionHeight = prefs.getInt("ipcam_height", 480),
+            jpegQuality = prefs.getInt("ipcam_quality", 75),
+            showMiniPreviewOnClock = prefs.getBoolean("ipcam_show_mini", false)
+        )
+    }
+
+    fun updateIpCameraConfig(config: com.example.camera.IpCameraConfig) {
+        prefs.edit()
+            .putBoolean("ipcam_enabled", config.isEnabled)
+            .putInt("ipcam_port", config.port)
+            .putBoolean("ipcam_front", config.useFrontCamera)
+            .putInt("ipcam_fps", config.targetFps)
+            .putInt("ipcam_width", config.resolutionWidth)
+            .putInt("ipcam_height", config.resolutionHeight)
+            .putInt("ipcam_quality", config.jpegQuality)
+            .putBoolean("ipcam_show_mini", config.showMiniPreviewOnClock)
+            .apply()
+        _ipCameraConfig.value = config
     }
 }

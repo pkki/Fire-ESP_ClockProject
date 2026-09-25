@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0e17" />
+<title>緊急地震速報 (EEW) リアルタイム地域震度・P/S波マップ</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root {
+  --bg: #0a0e17;
+  --bg-elevated: #0f141f;
+  --bg-card: #131a26;
+  --bg-card-hover: #1a2333;
+  --border: #1e293b;
+  --border-light: #334155;
+  --accent: #3b82f6;
+  --accent-glow: #60a5fa;
+  --text: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --green: #22c55e;
+  --amber: #f59e0b;
+  --red: #ef4444;
+  --purple: #a855f7;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans JP', 'Hiragino Sans', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#map {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%;
+  background: #0a0e17; z-index: 1;
+}
+
+#radar-canvas {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%;
+  background: #080c14; z-index: 1; display: none; touch-action: none;
+}
+
+#radar-controls {
+  position: absolute; bottom: calc(16px + var(--safe-bottom)); left: calc(16px + var(--safe-left));
+  z-index: 1600; display: none; flex-direction: column; gap: 6px;
+}
+
+.radar-btn {
+  width: 38px; height: 38px; border-radius: 8px; background: rgba(19,26,38,0.92);
+  border: 1.5px solid var(--border-light); color: #fff; font-size: 18px; font-weight: bold;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6); user-select: none;
+  transition: background 0.15s;
+}
+.radar-btn:active { background: rgba(59,130,246,0.4); border-color: var(--accent); }
+
+#radar-mode-badge {
+  position: absolute; bottom: calc(16px + var(--safe-bottom)); left: calc(64px + var(--safe-left));
+  z-index: 1550; display: none;
+  background: rgba(15,23,42,0.85); border: 1px solid rgba(56,189,248,0.4);
+  border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: bold;
+  color: #38bdf8; backdrop-filter: blur(4px); pointer-events: none;
+}
+
+.leaflet-container { background: #0a0e17; font-family: inherit; }
+.leaflet-control-zoom { border: none !important; box-shadow: 0 4px 14px rgba(0,0,0,0.5) !important; }
+.leaflet-control-zoom a {
+  background: var(--bg-card) !important; color: var(--text) !important; border-color: var(--border) !important;
+}
+.leaflet-control-attribution {
+  background: rgba(10,14,23,0.85) !important; color: var(--text-muted) !important; font-size: 10px !important;
+  border-radius: 4px; padding: 2px 6px !important;
+}
+.leaflet-control-attribution a { color: var(--text-secondary) !important; }
+
+/* ============================================================
+   EEW ALERT STACK (Left Top) - Compact & High-Contrast
+   ============================================================ */
+#eew-alert-stack {
+  position: absolute; top: calc(10px + var(--safe-top)); left: calc(10px + var(--safe-left)); z-index: 1700;
+  width: min(280px, calc(100% - 20px));
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: calc(100% - 20px - var(--safe-top)); overflow-y: auto; overflow-x: hidden;
+  pointer-events: none;
+}
+.eew-alert-item {
+  transform: translateY(-6px); opacity: 0; pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.eew-alert-item.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+.eew-detect-toast {
+  align-self: flex-start; display: flex; align-items: center; gap: 6px;
+  background: var(--bg-card); border: 1.5px solid var(--red); border-radius: 999px;
+  padding: 4px 10px; color: var(--text); font-size: 11px; font-weight: 800;
+  box-shadow: 0 4px 16px rgba(0,0,0,.7);
+  opacity: 0; transform: translateY(-6px); pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.eew-detect-toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.eew-detect-toast .eew-detect-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--red); flex: none;
+  animation: eew-detect-pulse 1s ease-in-out infinite;
+}
+@keyframes eew-detect-pulse { 0%,100%{ opacity: 1; transform: scale(1); } 50%{ opacity: .3; transform: scale(1.2); } }
+
+/* Crisp Compact NHK-style Alert Card */
+.eew-alert-card {
+  background: rgba(16, 22, 34, 0.96); border: 1.5px solid var(--border-light); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.85); backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+.eew-alert-card.cancelled { background: var(--bg-elevated); border-color: var(--border); }
+.eew-alert-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 5px 8px; background: rgba(239,68,68,.22); border-bottom: 1.5px solid var(--red);
+}
+.eew-alert-card.cancelled .eew-alert-head { background: transparent; border-bottom-color: var(--border-light); }
+.eew-alert-title { color: #ffffff; font-size: 11.5px; font-weight: 900; letter-spacing: .3px; }
+.eew-alert-serial { color: #fecaca; font-size: 10px; font-weight: 800; white-space: nowrap; flex: none; background: rgba(239,68,68,0.3); padding: 1px 4px; border-radius: 2px; }
+.eew-alert-body { display: flex; align-items: center; gap: 8px; padding: 6px 8px 4px; }
+.eew-alert-scale-box {
+  flex: none; width: 40px; height: 40px; border-radius: 4px; border: 2px solid currentColor;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 900; background: #0b0f19; color: var(--text-muted);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.eew-alert-info { min-width: 0; flex: 1 1 auto; }
+.eew-alert-hypo { color: #ffffff; font-size: 15px; font-weight: 900; line-height: 1.2; word-break: break-word; }
+.eew-alert-time { color: var(--text-secondary); font-size: 10px; font-weight: 600; margin-top: 1px; }
+
+.eew-alert-areas {
+  display: flex; flex-wrap: wrap; gap: 3px; padding: 0 8px 6px; max-height: 48px; overflow-y: auto;
+}
+.eew-area-badge {
+  font-size: 9.5px; font-weight: 800; padding: 1px 5px; border-radius: 2px; color: var(--text);
+  background: var(--bg-elevated); border: 1px solid var(--border-light); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.eew-area-badge .arv-sub { font-size: 8px; color: var(--text-muted); font-weight: normal; }
+
+.eew-alert-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 8px; background: var(--bg-elevated); border-top: 1px solid var(--border-light);
+  color: var(--text-secondary); font-size: 9.5px; font-weight: 700;
+}
+
+/* User Location Pinpoint Card (Compact) */
+#user-location-card {
+  margin: 0 8px 6px; padding: 4px 7px; background: rgba(59,130,246,0.15);
+  border: 1px solid rgba(59,130,246,0.4); border-radius: 4px;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+}
+.user-loc-title { font-size: 10px; font-weight: 800; color: #93c5fd; }
+.user-loc-intensity { font-size: 11.5px; font-weight: 900; }
+.user-loc-countdown { font-size: 11px; font-weight: 900; color: #facc15; }
+
+/* ============================================================
+   REGION INTENSITY BADGES (On Leaflet Map)
+   ============================================================ */
+.eew-region-marker-icon { background: transparent; border: none; }
+.eew-region-badge {
+  width: 26px; height: 26px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 900; font-family: inherit; line-height: 1;
+  border: 1.5px solid rgba(10,14,22,0.9);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  cursor: pointer; transition: transform 0.15s ease;
+}
+.eew-region-badge:hover { transform: scale(1.25); z-index: 999; }
+.eew-region-badge.arrived { opacity: 0.85; filter: saturate(0.9); }
+
+/* Region intensity tooltip */
+.leaflet-popup-content-wrapper {
+  background: var(--bg-card) !important; color: var(--text) !important;
+  border: 1px solid var(--border-light) !important; border-radius: 6px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.8) !important;
+}
+.leaflet-popup-tip { background: var(--bg-card) !important; }
+.region-popup-content { font-size: 11.5px; line-height: 1.4; padding: 2px; }
+.region-popup-head { font-size: 13px; font-weight: 900; color: #fff; margin-bottom: 4px; border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+.region-popup-row { display: flex; justify-content: space-between; gap: 8px; margin: 2px 0; }
+.region-popup-label { color: var(--text-muted); font-weight: 600; }
+.region-popup-val { font-weight: 800; color: var(--text); }
+
+/* P/S Wave Labels */
+.eew-wave-label-icon { background: transparent; border: none; }
+.eew-wave-label {
+  transform: translate(-50%, -100%);
+  font-size: 11px; font-weight: 900; white-space: nowrap; pointer-events: none;
+  padding: 2px 6px; border-radius: 4px; background: rgba(10,14,23,0.88); border: 1.5px solid currentColor;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+/* User Home Marker */
+.user-home-marker-icon { background: transparent; border: none; }
+.user-home-pin {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #3b82f6; border: 2.5px solid #ffffff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 12px #60a5fa, 0 3px 8px rgba(0,0,0,0.8);
+  font-size: 11px;
+}
+
+/* ============================================================
+   TOP RIGHT STATUS BAR & CONTROLS
+   ============================================================ */
+#top-live-bar {
+  position: absolute; top: calc(12px + var(--safe-top)); right: calc(12px + var(--safe-right)); z-index: 1600;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end;
+}
+.live-pill {
+  background: rgba(19,26,38,0.88); border: 1px solid var(--border-light); border-radius: 999px;
+  padding: 5px 12px; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800;
+  color: var(--text); backdrop-filter: blur(4px); box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex: none; }
+.live-dot.connecting { background: #f59e0b; }
+.live-dot.error { background: #ef4444; }
+
+.jshis-badge {
+  background: rgba(30, 58, 138, 0.7); border: 1px solid rgba(96, 165, 250, 0.5); border-radius: 999px;
+  padding: 5px 10px; font-size: 10.5px; font-weight: 800; color: #bfdbfe;
+  display: flex; align-items: center; gap: 5px; backdrop-filter: blur(4px);
+}
+
+.filter-select {
+  background: rgba(19,26,38,0.9); border: 1px solid var(--border-light); border-radius: 999px;
+  padding: 4px 10px; font-size: 11px; font-weight: 800; color: var(--text);
+  outline: none; cursor: pointer;
+}
+
+/* ============================================================
+   BOTTOM RIGHT NOTICE STACK
+   ============================================================ */
+#eq-notice-stack {
+  position: absolute; right: calc(12px + var(--safe-right)); bottom: calc(12px + var(--safe-bottom));
+  z-index: 1650; width: min(320px, calc(100% - 24px));
+  display: flex; flex-direction: column-reverse; gap: 8px;
+  max-height: calc(100% - 24px - var(--safe-bottom)); overflow-y: auto; overflow-x: hidden;
+  pointer-events: none;
+}
+.eq-notice-item {
+  position: relative; pointer-events: auto;
+  background: var(--bg-card); border: 1.5px solid var(--border-light); border-left: 4px solid var(--red);
+  border-radius: 0; box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  padding: 10px 32px 10px 12px;
+  animation: eq-notice-in .25s ease;
+}
+@keyframes eq-notice-in { from{ opacity: 0; transform: translateY(10px);} to{ opacity: 1; transform: translateY(0);} }
+.eq-notice-text { color: var(--text); font-size: 13px; font-weight: 800; line-height: 1.4; word-break: break-word; }
+.eq-notice-time { color: var(--text-secondary); font-size: 10.5px; font-weight: 600; margin-top: 3px; }
+.eq-notice-detail-btn {
+  margin-top: 6px; padding: 3px 12px; border-radius: 999px; border: 1px solid var(--border-light);
+  background: rgba(255,255,255,.06); color: var(--text-secondary); font-size: 11px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.eq-notice-close {
+  position: absolute; top: 4px; right: 4px; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: var(--text-secondary); cursor: pointer;
+  font-size: 18px; line-height: 1; border-radius: 0; padding: 0;
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<canvas id="radar-canvas"></canvas>
+
+<!-- Radar On-Screen Controls -->
+<div id="radar-controls">
+  <button class="radar-btn" id="radar-zoom-in" title="拡大">+</button>
+  <button class="radar-btn" id="radar-zoom-out" title="縮小">−</button>
+  <button class="radar-btn" id="radar-recenter" title="現在地・震源に移動">🎯</button>
+</div>
+<div id="radar-mode-badge">⚡ 超軽量レーダーモード (低負荷60fps・通信量ゼロ)</div>
+
+<!-- Top Live & Control Bar -->
+<div id="top-live-bar">
+  <div class="jshis-badge" title="J-SHIS（地震ハザードステーション）表層地盤増幅率 & 司・翠川(1999)距離減衰式連動">
+    <span>🏛️ J-SHIS 地盤増幅率連動</span>
+  </div>
+  <select id="min-intensity-filter" class="filter-select" title="表示下限震度">
+    <option value="10">表示: 震度1以上 (全域)</option>
+    <option value="20">表示: 震度2以上</option>
+    <option value="30">表示: 震度3以上</option>
+    <option value="40">表示: 震度4以上</option>
+    <option value="45">表示: 震度5弱以上 (警報)</option>
+  </select>
+  <div class="live-pill" id="ws-status-pill">
+    <div class="live-dot" id="ws-status-dot"></div>
+    <span id="ws-status-text">P2PQuake WS 接続中</span>
+  </div>
+</div>
+
+<!-- EEW Alert Stack (Left Top) -->
+<div id="eew-alert-stack">
+  <div id="eew-detect-toast" class="eew-detect-toast">
+    <div class="eew-detect-dot"></div>
+    <span>緊急地震速報の発表を検出</span>
+  </div>
+</div>
+
+<!-- Bottom Right Notice Stack -->
+<div id="eq-notice-stack"></div>
+
+<!-- Detailed Data Scripts: J-SHIS Station DB, Travel Time Equations, Attenuation -->
+<script>
+// ============================================================
+// 1. J-SHIS データベース & 代表地域マスター (全国約200地域)
+//    J-SHIS (地震ハザードステーション) 表層30m平均S波速度(AVS30)および
+//    微地形区分に基づく表層地盤増幅率 (ARV: Amp Rate of Velocity)
+// ============================================================
+const JSHIS_REGIONS_DATABASE = [
+  // 北海道
+  { id:"01100", pref:"北海道", name:"道央 (札幌・石狩)", lat:43.0642, lon:141.3469, arv:1.95, desc:"石狩平野・沖積低地" },
+  { id:"01101", pref:"北海道", name:"道央 (小樽・後志)", lat:43.1907, lon:140.9947, arv:1.35, desc:"海岸段丘・岩盤" },
+  { id:"01200", pref:"北海道", name:"道南 (函館・渡島)", lat:41.7687, lon:140.7288, arv:1.75, desc:"函館平野・砂州" },
+  { id:"01201", pref:"北海道", name:"道南 (江差・檜山)", lat:41.8690, lon:140.1274, arv:1.45, desc:"丘陵・段丘" },
+  { id:"01300", pref:"北海道", name:"道北 (旭川・上川)", lat:43.7706, lon:142.3650, arv:1.60, desc:"上川盆地" },
+  { id:"01301", pref:"北海道", name:"道北 (稚内・宗谷)", lat:45.4094, lon:141.6739, arv:1.55, desc:"海岸段丘" },
+  { id:"01302", pref:"北海道", name:"道北 (留萌)", lat:43.9410, lon:141.6548, arv:1.65, desc:"沿岸低地" },
+  { id:"01400", pref:"北海道", name:"道東 (釧路)", lat:42.9849, lon:144.3818, arv:2.10, desc:"釧路湿原・泥炭質低地" },
+  { id:"01401", pref:"北海道", name:"道東 (帯広・十勝)", lat:42.9239, lon:143.1961, arv:1.50, desc:"十勝平野・洪積台地" },
+  { id:"01402", pref:"北海道", name:"道東 (網走・北見・オホーツク)", lat:44.0206, lon:144.2734, arv:1.45, desc:"沿岸段丘" },
+  { id:"01403", pref:"北海道", name:"道東 (根室)", lat:43.3301, lon:145.5828, arv:1.50, desc:"根室台地" },
+
+  // 東北
+  { id:"02001", pref:"青森県", name:"青森県津軽北部", lat:40.8244, lon:140.7400, arv:1.80, desc:"青森平野" },
+  { id:"02002", pref:"青森県", name:"青森県津軽南部 (弘前)", lat:40.6031, lon:140.4639, arv:1.65, desc:"津軽盆地" },
+  { id:"02003", pref:"青森県", name:"青森県三八上北 (八戸)", lat:40.5123, lon:141.4884, arv:1.70, desc:"八戸沿岸低地" },
+  { id:"02004", pref:"青森県", name:"青森県下北 (むつ)", lat:41.2927, lon:141.1835, arv:1.40, desc:"下北丘陵" },
+  { id:"03001", pref:"岩手県", name:"岩手県沿岸北部 (宮古)", lat:39.6414, lon:141.9571, arv:1.30, desc:"リアス沿岸・岩盤" },
+  { id:"03002", pref:"岩手県", name:"岩手県沿岸南部 (大船渡・釜石)", lat:39.0819, lon:141.7086, arv:1.35, desc:"リアス沿岸" },
+  { id:"03003", pref:"岩手県", name:"岩手県内陸北部 (盛岡)", lat:39.7036, lon:141.1527, arv:1.55, desc:"北上盆地北部" },
+  { id:"03004", pref:"岩手県", name:"岩手県内陸南部 (一関・奥州)", lat:38.9298, lon:141.1278, arv:1.60, desc:"北上盆地南部" },
+  { id:"04001", pref:"宮城県", name:"宮城県北部 (登米・栗原)", lat:38.6942, lon:141.1872, arv:1.75, desc:"仙北平野" },
+  { id:"04002", pref:"宮城県", name:"宮城県南部 (仙台・名取)", lat:38.2688, lon:140.8721, arv:1.90, desc:"仙台平野・沖積低地" },
+  { id:"04003", pref:"宮城県", name:"宮城県沿岸 (石巻・気仙沼)", lat:38.4344, lon:141.3030, arv:1.85, desc:"旧北上川河口低地" },
+  { id:"05001", pref:"秋田県", name:"秋田県沿岸北部 (能代)", lat:40.2114, lon:140.0264, arv:1.80, desc:"米代川下流低地" },
+  { id:"05002", pref:"秋田県", name:"秋田県沿岸南部 (秋田・由利本荘)", lat:39.7186, lon:140.1024, arv:1.90, desc:"秋田平野・雄物川低地" },
+  { id:"05003", pref:"秋田県", name:"秋田県内陸 (大仙・横手)", lat:39.4533, lon:140.4755, arv:1.65, desc:"横手盆地" },
+  { id:"06001", pref:"山形県", name:"山形県庄内 (酒田・鶴岡)", lat:38.9144, lon:139.8365, arv:2.05, desc:"庄内平野・軟弱砂泥層" },
+  { id:"06002", pref:"山形県", name:"山形県村山 (山形)", lat:38.2404, lon:140.3633, arv:1.55, desc:"山形盆地" },
+  { id:"06003", pref:"山形県", name:"山形県置賜 (米沢)", lat:37.9222, lon:140.1166, arv:1.50, desc:"米沢盆地" },
+  { id:"07001", pref:"福島県", name:"福島県中通り (福島・郡山)", lat:37.7500, lon:140.4678, arv:1.60, desc:"福島盆地・郡山盆地" },
+  { id:"07002", pref:"福島県", name:"福島県浜通り (いわき・相馬)", lat:37.0504, lon:140.8877, arv:1.75, desc:"浜通り沿岸低地" },
+  { id:"07003", pref:"福島県", name:"福島県会津 (会津若松)", lat:37.4950, lon:139.9272, arv:1.50, desc:"会津盆地" },
+
+  // 関東
+  { id:"08001", pref:"茨城県", name:"茨城県北部 (水戸・日立)", lat:36.3418, lon:140.4468, arv:1.60, desc:"那珂川低地・台地" },
+  { id:"08002", pref:"茨城県", name:"茨城県南部 (つくば・土浦・鹿行)", lat:36.0835, lon:140.1114, arv:2.10, desc:"霞ヶ浦沿岸低地・軟弱泥層" },
+  { id:"09001", pref:"栃木県", name:"栃木県北部 (那須・日光)", lat:36.8697, lon:139.9875, arv:1.25, desc:"那須野が原・扇状地礫層" },
+  { id:"09002", pref:"栃木県", name:"栃木県南部 (宇都宮・小山)", lat:36.5658, lon:139.8836, arv:1.65, desc:"宇都宮平野・宝木台地" },
+  { id:"10001", pref:"群馬県", name:"群馬県南部 (前橋・高崎)", lat:36.3911, lon:139.0608, arv:1.45, desc:"前橋台地・扇状地" },
+  { id:"10002", pref:"群馬県", name:"群馬県北部 (沼田・草津)", lat:36.6444, lon:139.0436, arv:1.20, desc:"山地・溶岩段丘" },
+  { id:"11001", pref:"埼玉県", name:"埼玉県南部 (さいたま・川口)", lat:35.8570, lon:139.6489, arv:2.20, desc:"荒川低地・大宮台地" },
+  { id:"11002", pref:"埼玉県", name:"埼玉県北部 (熊谷・深谷)", lat:36.1473, lon:139.3886, arv:1.80, desc:"妻沼低地・江南台地" },
+  { id:"11003", pref:"埼玉県", name:"埼玉県秩父", lat:35.9917, lon:139.0853, arv:1.25, desc:"秩父盆地・基盤岩" },
+  { id:"12001", pref:"千葉県", name:"千葉県北西部 (千葉・船橋・松戸)", lat:35.6047, lon:140.1233, arv:2.25, desc:"東京湾岸埋立地・下総台地谷津" },
+  { id:"12002", pref:"千葉県", name:"千葉県北東部 (成田・銚子)", lat:35.7347, lon:140.8267, arv:1.95, desc:"九十九里平野・利根川低地" },
+  { id:"12003", pref:"千葉県", name:"千葉県南部 (館山・木更津)", lat:34.9965, lon:139.8698, arv:1.70, desc:"房総丘陵・館山低地" },
+  { id:"13001", pref:"東京都", name:"東京都２３区東部 (江東・墨田・江戸川)", lat:35.6895, lon:139.8150, arv:2.65, desc:"東京低地・沖積軟弱粘土層" },
+  { id:"13002", pref:"東京都", name:"東京都２３区西部 (新宿・渋谷・世田谷)", lat:35.6895, lon:139.6917, arv:1.75, desc:"武蔵野台地・ローム層" },
+  { id:"13003", pref:"東京都", name:"東京都多摩東部 (立川・武蔵野)", lat:35.6995, lon:139.4137, arv:1.55, desc:"立川段丘・武蔵野段丘" },
+  { id:"13004", pref:"東京都", name:"東京都多摩西部 (八王子・青梅)", lat:35.6558, lon:139.3239, arv:1.35, desc:"加住丘陵・関東山地" },
+  { id:"13005", pref:"東京都", name:"東京都島しょ部 (伊豆大島・八丈島)", lat:34.7500, lon:139.3500, arv:1.20, desc:"火山島・玄武岩盤" },
+  { id:"14001", pref:"神奈川県", name:"神奈川県東部 (横浜・川崎)", lat:35.4478, lon:139.6425, arv:2.15, desc:"横浜沿岸低地・多摩丘陵" },
+  { id:"14002", pref:"神奈川県", name:"神奈川県西湘 (小田原・平塚・藤沢)", lat:35.2555, lon:139.1597, arv:1.85, desc:"相模平野・酒匂川低地" },
+  { id:"14003", pref:"神奈川県", name:"神奈川県相模原・丹沢", lat:35.5714, lon:139.3731, arv:1.45, desc:"相模原台地" },
+
+  // 中部・北陸・甲信
+  { id:"15001", pref:"新潟県", name:"新潟県下越 (新潟)", lat:37.9026, lon:139.0236, arv:2.55, desc:"越後平野・信濃川三角州超軟弱層" },
+  { id:"15002", pref:"新潟県", name:"新潟県中越 (長岡)", lat:37.4477, lon:138.8514, arv:1.95, desc:"信濃川沖積低地" },
+  { id:"15003", pref:"新潟県", name:"新潟県上越 (上越)", lat:37.1479, lon:138.2361, arv:1.80, desc:"高田平野" },
+  { id:"15004", pref:"新潟県", name:"新潟県佐渡", lat:38.0167, lon:138.3667, arv:1.40, desc:"国仲平野・佐渡山地" },
+  { id:"16001", pref:"富山県", name:"富山県東部 (富山)", lat:36.6953, lon:137.2113, arv:1.75, desc:"富山平野・常願寺川扇状地" },
+  { id:"16002", pref:"富山県", name:"富山県西部 (高岡)", lat:36.7554, lon:137.0229, arv:1.90, desc:"射水平野・庄川低地" },
+  { id:"17001", pref:"石川県", name:"石川県能登 (輪島・珠洲・七尾)", lat:37.3912, lon:136.8992, arv:1.70, desc:"能登丘陵・沿岸低地" },
+  { id:"17002", pref:"石川県", name:"石川県加賀 (金沢・小松)", lat:36.5947, lon:136.6256, arv:1.85, desc:"金沢平野・手取川扇状地" },
+  { id:"18001", pref:"福井県", name:"福井県嶺北 (福井・坂井)", lat:36.0652, lon:136.2216, arv:2.20, desc:"福井平野・九頭竜川沖積軟弱層" },
+  { id:"18002", pref:"福井県", name:"福井県嶺南 (敦賀・小浜)", lat:35.6453, lon:136.0558, arv:1.45, desc:"敦賀低地・リアス海岸" },
+  { id:"19001", pref:"山梨県", name:"山梨県中・西部 (甲府)", lat:35.6642, lon:138.5684, arv:1.65, desc:"甲府盆地・笛吹川低地" },
+  { id:"19002", pref:"山梨県", name:"山梨県東部・富士五湖", lat:35.4875, lon:138.7958, arv:1.20, desc:"富士山麓・溶岩層" },
+  { id:"20001", pref:"長野県", name:"長野県北部 (長野)", lat:36.6513, lon:138.1810, arv:1.80, desc:"善光寺平・千曲川沖積低地" },
+  { id:"20002", pref:"長野県", name:"長野県中部 (松本・上田)", lat:36.2381, lon:137.9719, arv:1.55, desc:"松本盆地・梓川扇状地" },
+  { id:"20003", pref:"長野県", name:"長野県南部 (飯田・伊那)", lat:35.5147, lon:137.8219, arv:1.40, desc:"伊那谷・河岸段丘" },
+
+  // 東海
+  { id:"21001", pref:"岐阜県", name:"岐阜県美濃中西部 (岐阜・大垣)", lat:35.3912, lon:136.7223, arv:2.35, desc:"濃尾平野北西部・揖斐川長良川低地" },
+  { id:"21002", pref:"岐阜県", name:"岐阜県飛騨 (高山)", lat:36.1460, lon:137.2522, arv:1.30, desc:"高山盆地・飛騨山地" },
+  { id:"22001", pref:"静岡県", name:"静岡県伊豆 (熱海・三島・下田)", lat:35.0963, lon:139.0717, arv:1.35, desc:"伊豆火山岩盤・狩野川低地" },
+  { id:"22002", pref:"静岡県", name:"静岡県東部 (富士・沼津)", lat:35.1614, lon:138.6763, arv:1.60, desc:"愛鷹山麓・富士川低地" },
+  { id:"22003", pref:"静岡県", name:"静岡県中部 (静岡・焼津)", lat:34.9769, lon:138.3831, arv:1.95, desc:"静岡平野・安倍川扇状地" },
+  { id:"22004", pref:"静岡県", name:"静岡県西部 (浜松・掛川)", lat:34.7108, lon:137.7261, arv:2.05, desc:"浜松平野・天竜川沖積層" },
+  { id:"23001", pref:"愛知県", name:"愛知県西部 (名古屋・一宮)", lat:35.1802, lon:136.9066, arv:2.45, desc:"濃尾平野南東部・庄内川沖積軟弱層" },
+  { id:"23002", pref:"愛知県", name:"愛知県東部 (豊橋・岡崎・豊田)", lat:34.7694, lon:137.3917, arv:1.85, desc:"豊橋平野・岡崎平野" },
+  { id:"24001", pref:"三重県", name:"三重県北中部 (津・四日市)", lat:34.7303, lon:136.5086, arv:2.15, desc:"伊勢平野・沿岸埋立層" },
+  { id:"24002", pref:"三重県", name:"三重県南部 (伊勢・尾鷲・熊野)", lat:34.4875, lon:136.7092, arv:1.40, desc:"志摩半島・紀伊山地リアス海岸" },
+
+  // 近畿
+  { id:"25001", pref:"滋賀県", name:"滋賀県南部 (大津・草津)", lat:35.0045, lon:135.8686, arv:1.90, desc:"琵琶湖東南岸低地" },
+  { id:"25002", pref:"滋賀県", name:"滋賀県北部 (長浜・彦根)", lat:35.3789, lon:136.2647, arv:1.75, desc:"琵琶湖東北部低地" },
+  { id:"26001", pref:"京都府", name:"京都府南部 (京都・宇治)", lat:35.0212, lon:135.7556, arv:1.80, desc:"京都盆地・鴨川桂川低地" },
+  { id:"26002", pref:"京都府", name:"京都府北部 (舞鶴・福知山)", lat:35.4744, lon:135.3853, arv:1.50, desc:"福知山盆地・由良川低地" },
+  { id:"27001", pref:"大阪府", name:"大阪府北部 (大阪市・豊中・高槻)", lat:34.6863, lon:135.5200, arv:2.50, desc:"大阪平野・淀川三角州軟弱層" },
+  { id:"27002", pref:"大阪府", name:"大阪府南部 (堺・岸和田・泉佐野)", lat:34.5733, lon:135.4830, arv:2.20, desc:"泉州平野・大阪湾沿岸低地" },
+  { id:"28001", pref:"兵庫県", name:"兵庫県南部 (神戸・尼崎・明石)", lat:34.6913, lon:135.1830, arv:2.15, desc:"阪神間沿岸低地・六甲山麓" },
+  { id:"28002", pref:"兵庫県", name:"兵庫県播磨 (姫路・加古川)", lat:34.8152, lon:134.6853, arv:1.85, desc:"播磨平野・市川加古川低地" },
+  { id:"28003", pref:"兵庫県", name:"兵庫県北部 (豊岡)", lat:35.5444, lon:134.8211, arv:1.80, desc:"円山川低地" },
+  { id:"28004", pref:"兵庫県", name:"兵庫県淡路島", lat:34.3467, lon:134.8694, arv:1.45, desc:"洲本低地・淡路丘陵" },
+  { id:"29001", pref:"奈良県", name:"奈良県 (奈良・橿原)", lat:34.6851, lon:135.8330, arv:1.85, desc:"奈良盆地・沖積粘土層" },
+  { id:"30001", pref:"和歌山県", name:"和歌山県北部 (和歌山)", lat:34.2261, lon:135.1675, arv:2.10, desc:"紀の川下流平野" },
+  { id:"30002", pref:"和歌山県", name:"和歌山県南部 (田辺・白浜・串本)", lat:33.7314, lon:135.3789, arv:1.40, desc:"紀伊半島南部沿岸・砂岩泥岩層" },
+
+  // 中国
+  { id:"31001", pref:"鳥取県", name:"鳥取県東部 (鳥取)", lat:35.5039, lon:134.2381, arv:1.85, desc:"鳥取平野・千代川低地" },
+  { id:"31002", pref:"鳥取県", name:"鳥取県西部 (米子・境港)", lat:35.4281, lon:133.3311, arv:2.20, desc:"弓ヶ浜半島・砂州軟弱層" },
+  { id:"32001", pref:"島根県", name:"島根県東部 (松江・出雲)", lat:35.4723, lon:133.0505, arv:2.15, desc:"出雲平野・宍道湖沿岸泥炭層" },
+  { id:"32002", pref:"島根県", name:"島根県西部 (浜田・益田)", lat:34.8994, lon:132.0797, arv:1.45, desc:"沿岸低地・山地" },
+  { id:"33001", pref:"岡山県", name:"岡山県南部 (岡山・倉敷)", lat:34.6618, lon:133.9350, arv:2.30, desc:"岡山平野・児島湾干拓地" },
+  { id:"33002", pref:"岡山県", name:"岡山県北部 (津山)", lat:35.0694, lon:134.0042, arv:1.45, desc:"津山盆地" },
+  { id:"34001", pref:"広島県", name:"広島県南部 (広島・呉・福山)", lat:34.3966, lon:132.4596, arv:2.20, desc:"広島三角州・太田川低地" },
+  { id:"34002", pref:"広島県", name:"広島県北部 (三次・庄原)", lat:34.8058, lon:132.8522, arv:1.40, desc:"三次盆地" },
+  { id:"35001", pref:"山口県", name:"山口県中部・瀬戸内 (山口・宇部・防府)", lat:34.1859, lon:131.4714, arv:1.75, desc:"山口盆地・瀬戸内沿岸低地" },
+  { id:"35002", pref:"山口県", name:"山口県西部 (下関)", lat:33.9578, lon:130.9414, arv:1.70, desc:"関門沿岸低地" },
+  { id:"35003", pref:"山口県", name:"山口県東部 (岩国・周南)", lat:34.1667, lon:132.2167, arv:1.80, desc:"錦川三角州" },
+
+  // 四国
+  { id:"36001", pref:"徳島県", name:"徳島県北部 (徳島・鳴門)", lat:34.0658, lon:144.5593, arv:2.25, desc:"吉野川三角州・軟弱低地" },
+  { id:"36002", pref:"徳島県", name:"徳島県南部 (阿南・日和佐)", lat:33.9181, lon:134.6594, arv:1.55, desc:"阿南海岸・那賀川低地" },
+  { id:"37001", pref:"香川県", name:"香川県東部 (高松)", lat:34.3401, lon:134.0434, arv:1.85, desc:"高松平野・扇状地" },
+  { id:"37002", pref:"香川県", name:"香川県西部 (丸亀・観音寺)", lat:34.2897, lon:133.7975, arv:1.80, desc:"丸亀平野" },
+  { id:"38001", pref:"愛媛県", name:"愛媛県中予 (松山)", lat:33.8416, lon:132.7657, arv:1.95, desc:"松山平野・重信川低地" },
+  { id:"38002", pref:"愛媛県", name:"愛媛県東予 (今治・新居浜)", lat:34.0664, lon:132.9978, arv:1.75, desc:"道前平野・新居浜平野" },
+  { id:"38003", pref:"愛媛県", name:"愛媛県南予 (宇和島・八幡浜)", lat:33.2233, lon:132.5606, arv:1.45, desc:"リアス式沿岸低地" },
+  { id:"39001", pref:"高知県", name:"高知県中部 (高知)", lat:33.5597, lon:133.5311, arv:2.30, desc:"高知平野・鏡川浦戸湾低地" },
+  { id:"39002", pref:"高知県", name:"高知県東部 (室戸・安芸)", lat:33.2897, lon:134.1500, arv:1.35, desc:"海岸段丘・隆起岩盤" },
+  { id:"39003", pref:"高知県", name:"高知県西部 (四万十・宿毛)", lat:32.9903, lon:132.9328, arv:1.65, desc:"四万十川下流低地" },
+
+  // 九州・沖縄
+  { id:"40001", pref:"福岡県", name:"福岡県福岡地域 (福岡)", lat:33.6064, lon:130.4181, arv:2.05, desc:"福岡平野・那珂川室見川低地" },
+  { id:"40002", pref:"福岡県", name:"福岡県北九州地域 (北九州)", lat:33.8833, lon:130.8750, arv:1.70, desc:"北九州沿岸低地・洞海湾埋立地" },
+  { id:"40003", pref:"福岡県", name:"福岡県筑後地域 (久留米)", lat:33.3192, lon:130.5083, arv:2.35, desc:"筑後平野・筑後川軟弱粘土層" },
+  { id:"41001", pref:"佐賀県", name:"佐賀県南部 (佐賀)", lat:33.2494, lon:130.2989, arv:2.70, desc:"佐賀平野・有明海有明粘土超軟弱層" },
+  { id:"41002", pref:"佐賀県", name:"佐賀県北部 (唐津)", lat:33.4500, lon:129.9667, arv:1.55, desc:"唐津平野・東松浦台地" },
+  { id:"42001", pref:"長崎県", name:"長崎県南部 (長崎)", lat:32.7448, lon:129.8737, arv:1.50, desc:"長崎港湾斜面・安山岩基盤" },
+  { id:"42002", pref:"長崎県", name:"長崎県北部 (佐世保)", lat:33.1794, lon:129.7153, arv:1.55, desc:"佐世保低地・第三紀砂岩泥岩" },
+  { id:"42003", pref:"長崎県", name:"長崎県島原半島", lat:32.7878, lon:130.3700, arv:1.60, desc:"雲仙火山扇状地" },
+  { id:"43001", pref:"熊本県", name:"熊本県熊本地域 (熊本)", lat:32.7898, lon:130.7417, arv:2.25, desc:"熊本平野・白川緑川三角州軟弱層" },
+  { id:"43002", pref:"熊本県", name:"熊本県阿蘇地域", lat:32.9667, lon:131.1167, arv:1.45, desc:"阿蘇カルデラ火山灰台地" },
+  { id:"43003", pref:"熊本県", name:"熊本県八代・芦北・球磨", lat:32.5072, lon:130.6039, arv:2.10, desc:"八代平野・球磨川低地" },
+  { id:"44001", pref:"大分県", name:"大分県中部 (大分・別府)", lat:33.2382, lon:131.6126, arv:1.90, desc:"大分平野・大分川低地" },
+  { id:"44002", pref:"大分県", name:"大分県南部 (佐伯)", lat:32.9606, lon:131.9008, arv:1.55, desc:"番匠川低地・リアス沿岸" },
+  { id:"44003", pref:"大分県", name:"大分県北部 (中津・宇佐)", lat:33.5975, lon:131.1883, arv:1.80, desc:"中津平野" },
+  { id:"45001", pref:"宮崎県", name:"宮崎県南部平野部 (宮崎・日南)", lat:31.9111, lon:131.4239, arv:2.20, desc:"宮崎平野・大淀川低地" },
+  { id:"45002", pref:"宮崎県", name:"宮崎県北部平野部 (延岡・日向)", lat:32.5822, lon:131.6647, arv:1.95, desc:"延岡平野・五ヶ瀬川低地" },
+  { id:"45003", pref:"宮崎県", name:"宮崎県都城・小林", lat:31.7194, lon:131.0617, arv:1.60, desc:"都城盆地・シラス台地" },
+  { id:"46001", pref:"鹿児島県", name:"鹿児島県薩摩 (鹿児島)", lat:31.5602, lon:130.5581, arv:1.90, desc:"鹿児島沿岸低地・シラス層" },
+  { id:"46002", pref:"鹿児島県", name:"鹿児島県大隅 (鹿屋・志布志)", lat:31.3783, lon:130.8522, arv:1.80, desc:"笠野原台地・志布志湾低地" },
+  { id:"46003", pref:"鹿児島県", name:"鹿児島県薩摩川内・出水", lat:31.8139, lon:130.3028, arv:1.85, desc:"川内平野" },
+  { id:"46004", pref:"鹿児島県", name:"鹿児島県奄美大島", lat:28.3758, lon:129.4939, arv:1.30, desc:"奄美山地・サンゴ礁段丘" },
+  { id:"47001", pref:"沖縄県", name:"沖縄県本島中南部 (那覇)", lat:26.2124, lon:127.6809, arv:1.65, desc:"島尻層群泥岩・琉球石灰岩段丘" },
+  { id:"47002", pref:"沖縄県", name:"沖縄県本島北部 (名護)", lat:26.5917, lon:127.9772, arv:1.35, desc:"古期岩類山地" },
+  { id:"47003", pref:"沖縄県", name:"沖縄県宮古島・八重山 (石垣)", lat:24.3444, lon:124.1572, arv:1.40, desc:"琉球石灰岩台地" }
+];
+
+// ============================================================
+// 2. 正確な P波・S波 走時計算モジュール（気象庁標準走時モデル）
+// ============================================================
+const JmaSeismicWaveModel = {
+  // 震源からの距離と深さに応じたP波到達時間 (秒)
+  travelTimeP: function(distanceKm, depthKm) {
+    const d = Math.max(0, depthKm || 10);
+    const r = Math.sqrt(distanceKm * distanceKm + d * d);
+    if (r < 0.1) return 0;
+    let avgVp;
+    if (r < 200) {
+      avgVp = 5.80 + 0.0035 * d + 0.0006 * distanceKm;
+    } else {
+      avgVp = 7.75 - (12.0 / (r + 10));
+    }
+    return r / avgVp;
+  },
+
+  // 震源からの距離と深さに応じたS波到達時間 (秒)
+  travelTimeS: function(distanceKm, depthKm) {
+    const d = Math.max(0, depthKm || 10);
+    const r = Math.sqrt(distanceKm * distanceKm + d * d);
+    if (r < 0.1) return 0;
+    let avgVs;
+    if (r < 200) {
+      avgVs = 3.35 + 0.0020 * d + 0.00035 * distanceKm;
+    } else {
+      avgVs = 4.38 - (7.5 / (r + 10));
+    }
+    return r / avgVs;
+  },
+
+  // 経過時間(秒)から現在の地表震央距離(km)を逆算（バイナリサーチで高精度逆算）
+  radiusForElapsed: function(elapsedSec, depthKm, waveType) {
+    if (elapsedSec <= 0) return 0;
+    const d = Math.max(0, depthKm || 10);
+    const fn = waveType === 'p' ? this.travelTimeP : this.travelTimeS;
+    
+    // 震源直上(地表)に到達するまでの所要時間
+    const t0 = fn(0, d);
+    if (elapsedSec < t0) return 0; // まだ地表に達していない
+
+    let low = 0;
+    let high = 2500;
+    for (let i = 0; i < 20; i++) {
+      const mid = (low + high) / 2;
+      const t = fn(mid, d);
+      if (t < elapsedSec) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return (low + high) / 2;
+  }
+};
+
+// ============================================================
+// 3. J-SHIS 表層地盤増幅率 & 司・翠川(1999) 距離減衰・予測震度計算
+//    気象庁計測震度式: I = 2.68 + 1.72 * log10(PGV_surface)
+// ============================================================
+const IntensityCalculator = {
+  // 2地点間の大円距離 (km)
+  distanceKm: function(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  },
+
+  // 予測震度を計算（震度1〜7および連続計測震度）
+  calculateSiteIntensity: function(hypoLat, hypoLon, depthKm, magnitude, siteLat, siteLon, siteArv) {
+    const distKm = this.distanceKm(hypoLat, hypoLon, siteLat, siteLon);
+    const depth = Math.max(5, depthKm || 10);
+    const hypoDistX = Math.sqrt(distKm * distKm + depth * depth);
+    const M = Math.max(1.0, magnitude || 5.0);
+    const arv = siteArv || 1.8;
+
+    // Si & Midorikawa (1999) 工学的基盤(Vs=600m/s)最大速度 PGV_600 (cm/s)
+    const logPGV600 = 0.58 * M + 0.0038 * depth - 1.29 -
+      Math.log10(hypoDistX + 0.0028 * Math.pow(10, 0.50 * M)) - 0.002 * hypoDistX;
+    
+    const pgv600 = Math.pow(10, logPGV600);
+    // 地表最大速度 PGV_surface (cm/s)
+    const pgvSurface = pgv600 * arv;
+
+    // 気象庁計測震度 I (Midorikawa et al. 1999)
+    let rawIntensity = 2.68 + 1.72 * Math.log10(Math.max(0.001, pgvSurface));
+    rawIntensity = Math.max(0, Math.min(7.9, rawIntensity));
+
+    // JMA 震度階級区分
+    let scaleVal = 0;
+    let scaleText = "0";
+    let scaleColor = "#6b7280";
+    let shortLabel = "0";
+
+    if (rawIntensity >= 6.5) {
+      scaleVal = 70; scaleText = "7"; scaleColor = "#a800a8"; shortLabel = "7";
+    } else if (rawIntensity >= 6.0) {
+      scaleVal = 60; scaleText = "6強"; scaleColor = "#c2001f"; shortLabel = "6+";
+    } else if (rawIntensity >= 5.5) {
+      scaleVal = 55; scaleText = "6弱"; scaleColor = "#ff2020"; shortLabel = "6-";
+    } else if (rawIntensity >= 5.0) {
+      scaleVal = 50; scaleText = "5強"; scaleColor = "#ff6300"; shortLabel = "5+";
+    } else if (rawIntensity >= 4.5) {
+      scaleVal = 45; scaleText = "5弱"; scaleColor = "#ff9a00"; shortLabel = "5-";
+    } else if (rawIntensity >= 3.5) {
+      scaleVal = 40; scaleText = "4"; scaleColor = "#f2cf00"; shortLabel = "4";
+    } else if (rawIntensity >= 2.5) {
+      scaleVal = 30; scaleText = "3"; scaleColor = "#2ca02c"; shortLabel = "3";
+    } else if (rawIntensity >= 1.5) {
+      scaleVal = 20; scaleText = "2"; scaleColor = "#4c8bff"; shortLabel = "2";
+    } else if (rawIntensity >= 0.5) {
+      scaleVal = 10; scaleText = "1"; scaleColor = "#8c8c8c"; shortLabel = "1";
+    }
+
+    return {
+      distanceKm: distKm,
+      rawIntensity: rawIntensity,
+      scaleVal: scaleVal,
+      scaleText: scaleText,
+      scaleColor: scaleColor,
+      shortLabel: shortLabel,
+      pgvSurface: pgvSurface,
+      arv: arv,
+      travelTimeP: JmaSeismicWaveModel.travelTimeP(distKm, depth),
+      travelTimeS: JmaSeismicWaveModel.travelTimeS(distKm, depth)
+    };
+  }
+};
+
+// ============================================================
+// 4. MAP INITIALIZATION, LIGHTWEIGHT VECTOR RADAR & UI STATE
+// ============================================================
+let isLightweightMode = true; // Default: ultra-lightweight vector radar for tablet speed!
+
+// Coastlines for Lightweight Canvas Radar (Honshu, Hokkaido, Shikoku, Kyushu, Sado, Okinawa)
+const RADAR_JAPAN_COASTS = [
+  // Hokkaido
+  [[43.3,145.6],[44.0,145.2],[44.3,143.4],[45.5,141.9],[45.4,141.6],[43.9,141.6],[43.2,140.9],[42.1,139.8],[41.4,140.0],[41.8,140.8],[42.3,141.0],[42.6,140.3],[42.0,140.7],[41.9,141.3],[42.3,143.3],[42.9,144.4],[43.0,145.1],[43.3,145.6]],
+  // Honshu
+  [[41.5,140.9],[41.3,141.5],[40.5,141.5],[39.6,142.0],[38.3,141.5],[37.8,140.9],[37.0,140.9],[36.0,140.6],[35.7,140.9],[35.1,139.8],[35.3,139.7],[35.1,139.1],[34.6,138.9],[34.7,138.2],[34.6,137.4],[34.3,136.9],[34.0,136.2],[33.4,135.8],[33.7,135.3],[34.3,135.1],[34.7,135.4],[34.7,134.5],[34.3,134.0],[34.4,133.2],[34.3,132.5],[34.0,131.0],[34.4,131.4],[35.0,132.1],[35.5,133.2],[35.5,134.3],[35.6,135.3],[35.8,136.0],[36.6,136.7],[37.1,136.7],[37.5,137.3],[37.4,137.4],[37.0,137.0],[36.8,137.2],[37.0,137.8],[37.5,138.8],[37.9,139.0],[38.5,139.5],[39.1,139.8],[39.9,139.8],[40.3,139.9],[40.7,140.0],[41.2,140.4],[41.5,140.9]],
+  // Shikoku
+  [[34.4,134.4],[33.9,134.7],[33.5,134.3],[33.3,134.2],[32.7,133.0],[32.9,132.7],[33.2,132.4],[33.5,132.5],[33.8,132.7],[34.1,133.0],[34.3,133.7],[34.4,134.4]],
+  // Kyushu
+  [[33.9,130.9],[33.6,130.4],[33.5,129.9],[33.2,129.7],[32.7,129.8],[32.5,130.4],[32.2,130.4],[31.4,130.2],[31.0,130.7],[31.3,130.8],[31.3,131.3],[31.5,131.4],[32.5,131.7],[33.2,131.9],[33.6,131.2],[33.9,130.9]],
+  // Sado
+  [[38.3,138.5],[38.0,138.2],[37.8,138.4],[38.1,138.6],[38.3,138.5]],
+  // Okinawa
+  [[26.9,128.3],[26.5,127.9],[26.1,127.7],[26.3,127.8],[26.7,128.2],[26.9,128.3]]
+];
+
+const radarCanvas = document.getElementById('radar-canvas');
+const radarCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
+let radarCenter = { lat: 36.2, lon: 137.5 };
+let radarScale = 1.0;
+let radarAnimationId = null;
+
+let isRadarDragging = false;
+let radarDragStartX = 0;
+let radarDragStartY = 0;
+let radarDragStartCenter = { lat: 36.2, lon: 137.5 };
+
+function resizeRadarCanvas() {
+  if (!radarCanvas) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (radarCanvas.width !== w * dpr || radarCanvas.height !== h * dpr) {
+    radarCanvas.width = w * dpr;
+    radarCanvas.height = h * dpr;
+  }
+}
+
+function radarProject(lat, lon) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const baseScale = (Math.min(w, h) / 12) * radarScale;
+  const cosLat = Math.cos(radarCenter.lat * Math.PI / 180);
+  const x = (w / 2) + (lon - radarCenter.lon) * baseScale * cosLat;
+  const y = (h / 2) - (lat - radarCenter.lat) * baseScale;
+  return { x, y, baseScale };
+}
+
+function radarProjectRadius(radiusM) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const baseScale = (Math.min(w, h) / 12) * radarScale;
+  return (radiusM / 111320) * baseScale;
+}
+
+function drawRadar() {
+  if (!radarCtx || !radarCanvas || !isLightweightMode) return;
+  resizeRadarCanvas();
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  radarCtx.save();
+  radarCtx.scale(dpr, dpr);
+  radarCtx.clearRect(0, 0, w, h);
+
+  // 1. Coordinates grid lines
+  radarCtx.strokeStyle = 'rgba(30, 41, 59, 0.6)';
+  radarCtx.lineWidth = 1;
+  radarCtx.fillStyle = 'rgba(100, 116, 139, 0.4)';
+  radarCtx.font = '10px sans-serif';
+
+  for (let lat = 25; lat <= 46; lat += 5) {
+    const p1 = radarProject(lat, 120);
+    const p2 = radarProject(lat, 150);
+    radarCtx.beginPath();
+    radarCtx.moveTo(p1.x, p1.y);
+    radarCtx.lineTo(p2.x, p2.y);
+    radarCtx.stroke();
+    radarCtx.fillText(`${lat}°N`, 12, p1.y - 3);
+  }
+  for (let lon = 125; lon <= 150; lon += 5) {
+    const p1 = radarProject(24, lon);
+    const p2 = radarProject(48, lon);
+    radarCtx.beginPath();
+    radarCtx.moveTo(p1.x, p1.y);
+    radarCtx.lineTo(p2.x, p2.y);
+    radarCtx.stroke();
+    radarCtx.fillText(`${lon}°E`, p1.x + 3, h - 12);
+  }
+
+  // 2. Japan Coastline Landmass
+  radarCtx.fillStyle = 'rgba(24, 34, 53, 0.9)';
+  radarCtx.strokeStyle = 'rgba(71, 85, 105, 0.85)';
+  radarCtx.lineWidth = 1.5;
+
+  for (const poly of RADAR_JAPAN_COASTS) {
+    radarCtx.beginPath();
+    for (let i = 0; i < poly.length; i++) {
+      const pt = radarProject(poly[i][0], poly[i][1]);
+      if (i === 0) radarCtx.moveTo(pt.x, pt.y);
+      else radarCtx.lineTo(pt.x, pt.y);
+    }
+    radarCtx.closePath();
+    radarCtx.fill();
+    radarCtx.stroke();
+  }
+
+  // 3. User Location Marker
+  if (userLocation && userLocation.lat != null) {
+    const userPt = radarProject(userLocation.lat, userLocation.lon);
+    
+    radarCtx.beginPath();
+    radarCtx.arc(userPt.x, userPt.y, 12, 0, Math.PI * 2);
+    radarCtx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+    radarCtx.fill();
+
+    radarCtx.beginPath();
+    radarCtx.arc(userPt.x, userPt.y, 5, 0, Math.PI * 2);
+    radarCtx.fillStyle = '#38bdf8';
+    radarCtx.strokeStyle = '#ffffff';
+    radarCtx.lineWidth = 2;
+    radarCtx.fill();
+    radarCtx.stroke();
+
+    radarCtx.fillStyle = '#ffffff';
+    radarCtx.font = 'bold 11px sans-serif';
+    radarCtx.fillText(`📍 現在地 (${userLocation.name || userLocation.pref})`, userPt.x + 8, userPt.y + 4);
+  }
+
+  // 4. Render Active EEWs
+  for (const entry of activeEews.values()) {
+    if (!entry.d || entry.d.cancelled) continue;
+    const hypoLat = entry.d.hypocenter_lat;
+    const hypoLon = entry.d.hypocenter_lon;
+    if (hypoLat == null || hypoLon == null) continue;
+
+    const epiPt = radarProject(hypoLat, hypoLon);
+    const elapsedSec = Math.max(0, (Date.now() - (entry.originEpochMs || Date.now())) / 1000);
+    const depth = entry.depthKm || 10;
+
+    const radiusPKm = JmaSeismicWaveModel.radiusForElapsed(elapsedSec, depth, 'p');
+    const radiusSKm = JmaSeismicWaveModel.radiusForElapsed(elapsedSec, depth, 's');
+    const rPPx = radarProjectRadius(radiusPKm * 1000);
+    const rSPx = radarProjectRadius(radiusSKm * 1000);
+
+    // P-Wave Circle (Cyan)
+    if (rPPx > 1) {
+      radarCtx.beginPath();
+      radarCtx.arc(epiPt.x, epiPt.y, rPPx, 0, Math.PI * 2);
+      radarCtx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+      radarCtx.fill();
+      radarCtx.strokeStyle = '#38bdf8';
+      radarCtx.lineWidth = 2.5;
+      radarCtx.stroke();
+
+      radarCtx.fillStyle = '#38bdf8';
+      radarCtx.font = 'bold 11px sans-serif';
+      radarCtx.fillText(`P波 (${Math.round(radiusPKm)}km)`, epiPt.x + 4, epiPt.y - rPPx - 4);
+    }
+
+    // S-Wave Circle (Red/Amber)
+    if (rSPx > 1) {
+      radarCtx.beginPath();
+      radarCtx.arc(epiPt.x, epiPt.y, rSPx, 0, Math.PI * 2);
+      radarCtx.fillStyle = 'rgba(239, 68, 68, 0.16)';
+      radarCtx.fill();
+      radarCtx.strokeStyle = '#ef4444';
+      radarCtx.lineWidth = 3;
+      radarCtx.stroke();
+
+      radarCtx.fillStyle = '#ef4444';
+      radarCtx.font = 'bold 12px sans-serif';
+      radarCtx.fillText(`S波 主要動 (${Math.round(radiusSKm)}km)`, epiPt.x + 4, epiPt.y - rSPx - 4);
+    }
+
+    // Regional Intensity Badges
+    if (entry.regionalResults && entry.regionalResults.length > 0) {
+      for (const item of entry.regionalResults) {
+        const calc = item.calc;
+        const reg = item.region;
+        if (calc.scaleVal < currentFilterScale) continue;
+
+        const regPt = radarProject(reg.lat, reg.lon);
+        const badgeW = 24;
+        const badgeH = 18;
+        const rx = regPt.x - badgeW / 2;
+        const ry = regPt.y - badgeH / 2;
+
+        radarCtx.fillStyle = calc.scaleColor;
+        radarCtx.beginPath();
+        if (radarCtx.roundRect) radarCtx.roundRect(rx, ry, badgeW, badgeH, 3);
+        else radarCtx.rect(rx, ry, badgeW, badgeH);
+        radarCtx.fill();
+        radarCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+        radarCtx.lineWidth = 1;
+        radarCtx.stroke();
+
+        radarCtx.fillStyle = calc.scaleVal >= 45 ? '#ffffff' : '#0a0e17';
+        radarCtx.font = 'bold 10px sans-serif';
+        radarCtx.textAlign = 'center';
+        radarCtx.textBaseline = 'middle';
+        radarCtx.fillText(calc.shortLabel, regPt.x, regPt.y);
+      }
+      radarCtx.textAlign = 'left';
+      radarCtx.textBaseline = 'alphabetic';
+    }
+
+    // Epicenter Mark (Flashing Red Ring + ✕)
+    const pulse = (Date.now() % 1000) / 1000;
+    radarCtx.beginPath();
+    radarCtx.arc(epiPt.x, epiPt.y, 7 + pulse * 12, 0, Math.PI * 2);
+    radarCtx.strokeStyle = `rgba(239, 68, 68, ${1 - pulse})`;
+    radarCtx.lineWidth = 2.5;
+    radarCtx.stroke();
+
+    radarCtx.beginPath();
+    radarCtx.arc(epiPt.x, epiPt.y, 6, 0, Math.PI * 2);
+    radarCtx.fillStyle = '#ef4444';
+    radarCtx.fill();
+    radarCtx.strokeStyle = '#ffffff';
+    radarCtx.lineWidth = 2;
+    radarCtx.stroke();
+
+    radarCtx.strokeStyle = '#ffffff';
+    radarCtx.lineWidth = 2;
+    radarCtx.beginPath();
+    radarCtx.moveTo(epiPt.x - 3, epiPt.y - 3);
+    radarCtx.lineTo(epiPt.x + 3, epiPt.y + 3);
+    radarCtx.moveTo(epiPt.x + 3, epiPt.y - 3);
+    radarCtx.lineTo(epiPt.x - 3, epiPt.y + 3);
+    radarCtx.stroke();
+
+    radarCtx.fillStyle = '#ffffff';
+    radarCtx.font = 'bold 12px sans-serif';
+    radarCtx.fillText(`✖ 震源: ${entry.d.hypocenter_name || '震源'} M${entry.d.magnitude || '?'}`, epiPt.x + 10, epiPt.y + 4);
+  }
+
+  radarCtx.restore();
+
+  if (isLightweightMode) {
+    radarAnimationId = requestAnimationFrame(drawRadar);
+  }
+}
+
+function centerRadarOn(latlon) {
+  if (latlon && latlon.length >= 2) {
+    radarCenter = { lat: latlon[0], lon: latlon[1] };
+    radarScale = 1.3;
+  }
+}
+
+// Radar interactions
+if (radarCanvas) {
+  radarCanvas.addEventListener('pointerdown', (e) => {
+    isRadarDragging = true;
+    radarDragStartX = e.clientX;
+    radarDragStartY = e.clientY;
+    radarDragStartCenter = { ...radarCenter };
+    try { radarCanvas.setPointerCapture(e.pointerId); } catch(_) {}
+  });
+
+  radarCanvas.addEventListener('pointermove', (e) => {
+    if (!isRadarDragging) return;
+    const dx = e.clientX - radarDragStartX;
+    const dy = e.clientY - radarDragStartY;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const baseScale = (Math.min(w, h) / 12) * radarScale;
+    const cosLat = Math.cos(radarCenter.lat * Math.PI / 180);
+    radarCenter.lon = radarDragStartCenter.lon - (dx / (baseScale * cosLat));
+    radarCenter.lat = radarDragStartCenter.lat + (dy / baseScale);
+  });
+
+  const endDrag = (e) => {
+    isRadarDragging = false;
+    try { radarCanvas.releasePointerCapture(e.pointerId); } catch(_) {}
+  };
+  radarCanvas.addEventListener('pointerup', endDrag);
+  radarCanvas.addEventListener('pointercancel', endDrag);
+
+  radarCanvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      radarScale = Math.min(5.0, radarScale * 1.15);
+    } else {
+      radarScale = Math.max(0.4, radarScale / 1.15);
+    }
+  }, { passive: false });
+}
+
+document.getElementById('radar-zoom-in')?.addEventListener('click', () => {
+  radarScale = Math.min(5.0, radarScale * 1.3);
+});
+document.getElementById('radar-zoom-out')?.addEventListener('click', () => {
+  radarScale = Math.max(0.4, radarScale / 1.3);
+});
+document.getElementById('radar-recenter')?.addEventListener('click', () => {
+  let target = null;
+  for (const entry of activeEews.values()) {
+    if (entry.d && entry.d.hypocenter_lat) {
+      target = [entry.d.hypocenter_lat, entry.d.hypocenter_lon];
+      break;
+    }
+  }
+  if (!target && userLocation) {
+    target = [userLocation.lat, userLocation.lon];
+  }
+  if (target) centerRadarOn(target);
+  else {
+    radarCenter = { lat: 36.2, lon: 137.5 };
+    radarScale = 1.0;
+  }
+});
+
+function applyLightweightMode() {
+  const mapEl = document.getElementById('map');
+  const radarControls = document.getElementById('radar-controls');
+  const radarBadge = document.getElementById('radar-mode-badge');
+
+  if (isLightweightMode) {
+    if (mapEl) mapEl.style.display = 'none';
+    if (radarCanvas) radarCanvas.style.display = 'block';
+    if (radarControls) radarControls.style.display = 'flex';
+    if (radarBadge) radarBadge.style.display = 'block';
+    if (!radarAnimationId) {
+      radarAnimationId = requestAnimationFrame(drawRadar);
+    }
+  } else {
+    if (radarCanvas) radarCanvas.style.display = 'none';
+    if (radarControls) radarControls.style.display = 'none';
+    if (radarBadge) radarBadge.style.display = 'none';
+    if (mapEl) {
+      mapEl.style.display = 'block';
+      setTimeout(() => map.invalidateSize(), 50);
+    }
+    if (radarAnimationId) {
+      cancelAnimationFrame(radarAnimationId);
+      radarAnimationId = null;
+    }
+  }
+}
+
+// Standard Leaflet Map Initialization
+const map = L.map('map', {
+  zoomControl: true,
+  attributionControl: true,
+  renderer: L.canvas({ tolerance: 12 })
+}).setView([37.5, 137.5], 5);
+
+// ESRI Dark Canvas
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+  attribution: '&copy; Esri, J-SHIS, P2PQuake',
+  maxZoom: 16
+}).addTo(map);
+
+map.zoomControl.setPosition('bottomleft');
+
+const activeEews = new Map();
+const activeIntensities = new Map();
+let currentFilterScale = 10; // 震度1以上
+let userLocation = { pref: "東京都", name: "東京都２３区", lat: 35.6895, lon: 139.6917, arv: 1.85 };
+let userMarker = null;
+
+function initUserMarker() {
+  if (userMarker) map.removeLayer(userMarker);
+  const icon = L.divIcon({
+    className: 'user-home-marker-icon',
+    html: `<div class="user-home-pin" title="${escapeHtml(userLocation.name)}">📍</div>`,
+    iconSize: [24, 24], iconAnchor: [12, 12]
+  });
+  userMarker = L.marker([userLocation.lat, userLocation.lon], { icon: icon, zIndexOffset: 1000 }).addTo(map);
+  userMarker.bindTooltip(`現在地: ${escapeHtml(userLocation.name)} (J-SHIS地盤増幅率: ${userLocation.arv})`, { direction: 'top', offset: [0, -12] });
+}
+initUserMarker();
+applyLightweightMode();
+
+// ============================================================
+// 5. WAVE RENDERING & REGIONAL INTENSITY BADGES
+// ============================================================
+function eewWaveLabelIcon(text, color){
+  return L.divIcon({
+    className: 'eew-wave-label-icon',
+    html: `<div class="eew-wave-label" style="border-color:${color};color:${color}">${text}</div>`,
+    iconSize: [0, 0], iconAnchor: [0, 0],
+  });
+}
+function eewNorthPoint(centerLatLng, radiusM){
+  return L.latLng(centerLatLng.lat + radiusM / 111320, centerLatLng.lng);
+}
+function eewEventKey(d){
+  return (d.event_id !== null && d.event_id !== undefined && d.event_id !== '')
+    ? `evt:${d.event_id}` : `id:${d.id}`;
+}
+
+function escapeHtml(str){
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[m]);
+}
+
+function createEewCardDom(){
+  const item = document.createElement('div');
+  item.className = 'eew-alert-item';
+  item.innerHTML = `
+    <div class="eew-alert-card">
+      <div class="eew-alert-head">
+        <span class="eew-alert-title">緊急地震速報（警報）</span>
+        <span class="eew-alert-serial">第--報</span>
+      </div>
+      <div class="eew-alert-body">
+        <div class="eew-alert-scale-box">-</div>
+        <div class="eew-alert-info">
+          <div class="eew-alert-hypo">--</div>
+          <div class="eew-alert-time"></div>
+        </div>
+      </div>
+      <div id="user-location-card" style="display:none;">
+        <div>
+          <div class="user-loc-title">📍 ${escapeHtml(userLocation.name)}</div>
+          <div class="user-loc-intensity" id="user-loc-intensity-text">予測: --</div>
+        </div>
+        <div class="user-loc-countdown" id="user-loc-countdown-text">到達: --秒</div>
+      </div>
+      <div class="eew-alert-areas"></div>
+      <div class="eew-alert-foot">
+        <span class="eew-alert-sub">M-- / 深さ--km</span>
+        <span class="eew-alert-elapsed"></span>
+      </div>
+    </div>`;
+  return item;
+}
+
+function ensureEewWaveLayers(entry){
+  if (entry.layerGroup) return;
+  entry.layerGroup = L.layerGroup().addTo(map);
+  entry.regionMarkersGroup = L.layerGroup().addTo(map);
+  entry.circleP = L.circle([0, 0], { radius: 0, color: '#5ab0ff', weight: 2.5, fillColor: '#5ab0ff', fillOpacity: .06 }).addTo(entry.layerGroup);
+  entry.circleS = L.circle([0, 0], { radius: 0, color: '#ff5252', weight: 2.5, fillColor: '#ff5252', fillOpacity: .14 }).addTo(entry.layerGroup);
+  entry.epicenter = L.circleMarker([0, 0], { radius: 9, color: '#ffffff', weight: 3, fillColor: '#ff2020', fillOpacity: 1 }).addTo(entry.layerGroup);
+  entry.labelP = L.marker([0, 0], { icon: eewWaveLabelIcon('P波（初期微動）', '#5ab0ff'), interactive: false }).addTo(entry.layerGroup);
+  entry.labelS = L.marker([0, 0], { icon: eewWaveLabelIcon('S波（主要動・警戒）', '#ff5252'), interactive: false }).addTo(entry.layerGroup);
+}
+
+function renderRegionalIntensityMarkers(entry, d) {
+  if (!entry.regionMarkersGroup) return;
+  entry.regionMarkersGroup.clearLayers();
+  
+  const hypoLat = d.hypocenter_lat;
+  const hypoLon = d.hypocenter_lon;
+  const depth = d.depth || 10;
+  const mag = d.magnitude || 6.0;
+  if (hypoLat == null || hypoLon == null) return;
+
+  const results = [];
+  let maxCalcScale = 0;
+
+  for (const reg of JSHIS_REGIONS_DATABASE) {
+    const calc = IntensityCalculator.calculateSiteIntensity(
+      hypoLat, hypoLon, depth, mag, reg.lat, reg.lon, reg.arv
+    );
+    if (calc.scaleVal > maxCalcScale) {
+      maxCalcScale = calc.scaleVal;
+    }
+    results.push({ region: reg, calc: calc });
+  }
+
+  // Sort descending by intensity
+  results.sort((a, b) => b.calc.rawIntensity - a.calc.rawIntensity);
+  entry.regionalResults = results;
+
+  // Render badges on map for ALL affected areas with calculated intensity (scale 1 and above)
+  for (const item of results) {
+    const calc = item.calc;
+    const reg = item.region;
+    if (calc.scaleVal < 10) continue; // Skip below scale 1
+
+    const badgeIcon = L.divIcon({
+      className: 'eew-region-marker-icon',
+      html: `<div class="eew-region-badge" style="background:${calc.scaleColor};color:${calc.scaleVal >= 45 ? '#fff' : '#0a0e17'};" id="reg-badge-${reg.id}">${calc.shortLabel}</div>`,
+      iconSize: [26, 26], iconAnchor: [13, 13]
+    });
+
+    const marker = L.marker([reg.lat, reg.lon], { icon: badgeIcon }).addTo(entry.regionMarkersGroup);
+    
+    // Popup with full J-SHIS and arrival breakdown
+    const popupHtml = `
+      <div class="region-popup-content">
+        <div class="region-popup-head">${escapeHtml(reg.name)} (${escapeHtml(reg.pref)})</div>
+        <div class="region-popup-row">
+          <span class="region-popup-label">予測震度</span>
+          <span class="region-popup-val" style="color:${calc.scaleColor};font-size:14px;font-weight:900;">震度 ${calc.scaleText} (計測${calc.rawIntensity.toFixed(1)})</span>
+        </div>
+        <div class="region-popup-row">
+          <span class="region-popup-label">J-SHIS 地盤増幅率</span>
+          <span class="region-popup-val">${calc.arv.toFixed(2)} (${escapeHtml(reg.desc)})</span>
+        </div>
+        <div class="region-popup-row">
+          <span class="region-popup-label">震央距離</span>
+          <span class="region-popup-val">${Math.round(calc.distanceKm)} km</span>
+        </div>
+        <div class="region-popup-row">
+          <span class="region-popup-label">主要動 (S波) 到達</span>
+          <span class="region-popup-val" id="pop-cd-${reg.id}">計算中...</span>
+        </div>
+      </div>
+    `;
+    marker.bindPopup(popupHtml);
+  }
+
+  // Populate Affected Areas in Top-Left Alert Card (showing all significant areas down to scale 1)
+  const areasContainer = entry.cardEl?.querySelector('.eew-alert-areas');
+  if (areasContainer) {
+    areasContainer.innerHTML = '';
+    const topAreas = results.filter(r => r.calc.scaleVal >= 10).slice(0, 16);
+    for (const it of topAreas) {
+      const badge = document.createElement('span');
+      badge.className = 'eew-area-badge';
+      badge.innerHTML = `<strong style="color:${it.calc.scaleColor}">震度${it.calc.scaleText}</strong> ${escapeHtml(it.region.name)}`;
+      areasContainer.appendChild(badge);
+    }
+  }
+}
+
+function updateEewWave(entry){
+  if (!entry || !entry.d || entry.originEpochMs == null || !entry.circleP || !entry.circleS) return;
+  const elapsedSec = Math.max(0, (Date.now() - entry.originEpochMs) / 1000);
+  const depth = entry.depthKm || 10;
+  
+  // Accurate JMA Travel-Time model radius
+  const radiusPKm = JmaSeismicWaveModel.radiusForElapsed(elapsedSec, depth, 'p');
+  const radiusSKm = JmaSeismicWaveModel.radiusForElapsed(elapsedSec, depth, 's');
+  
+  const radiusP = radiusPKm * 1000;
+  const radiusS = radiusSKm * 1000;
+  
+  if (!isLightweightMode) {
+    entry.circleP.setRadius(radiusP);
+    entry.circleS.setRadius(radiusS);
+
+    const center = entry.circleP.getLatLng();
+    if (entry.labelP) entry.labelP.setLatLng(radiusP > 6000 ? eewNorthPoint(center, radiusP) : center);
+    if (entry.labelS) entry.labelS.setLatLng(radiusS > 6000 ? eewNorthPoint(center, radiusS) : center);
+
+    // Update regional countdowns in map popups only in standard map mode
+    if (entry.regionalResults && entry.regionalResults.length > 0) {
+      for (const it of entry.regionalResults) {
+        const popCd = document.getElementById(`pop-cd-${it.region.id}`);
+        if (popCd) {
+          const remainS = Math.ceil(it.calc.travelTimeS - elapsedSec);
+          popCd.textContent = remainS <= 0 ? "主要動 (S波) 到達済み" : `あと ${remainS} 秒で到達`;
+          popCd.style.color = remainS <= 0 ? "#ef4444" : "#facc15";
+        }
+      }
+    }
+  }
+
+  const el = entry.cardEl?.querySelector('.eew-alert-elapsed');
+  if (el) el.textContent = `${elapsedSec.toFixed(1)}s (S波:${Math.round(radiusSKm)}km)`;
+
+  // Update user pinpoint card and Real-time Voice Countdown
+  try {
+    if (entry.d && entry.d.hypocenter_lat != null && entry.d.hypocenter_lon != null) {
+      const userCalc = IntensityCalculator.calculateSiteIntensity(
+        entry.d.hypocenter_lat, entry.d.hypocenter_lon, depth, entry.d.magnitude || 6.0,
+        userLocation.lat, userLocation.lon, userLocation.arv
+      );
+      const userCard = entry.cardEl?.querySelector('#user-location-card');
+      const userIntText = entry.cardEl?.querySelector('#user-loc-intensity-text');
+      const userCdText = entry.cardEl?.querySelector('#user-loc-countdown-text');
+      const userRemain = Math.ceil(userCalc.travelTimeS - elapsedSec);
+
+      if (userCard && userIntText && userCdText) {
+        userCard.style.display = 'flex';
+        userIntText.innerHTML = `<span style="color:${userCalc.scaleColor};font-weight:900;">震度 ${userCalc.scaleText}</span> (計測${userCalc.rawIntensity.toFixed(1)})`;
+        if (userRemain <= 0) {
+          userCdText.textContent = "到達";
+          userCdText.style.color = "#ef4444";
+        } else {
+          userCdText.textContent = `あと ${userRemain} 秒`;
+          userCdText.style.color = "#facc15";
+        }
+      }
+
+      // Voice announcements matching user's requested wording (ONLY if user predicted intensity is 震度3以上, or if it's a test scenario)
+      const shouldAnnounce = !entry.d.cancelled && (userCalc.scaleVal >= 30 || entry.d.test);
+      if (shouldAnnounce) {
+        const userLocName = userLocation.name || userLocation.pref || '設定地域';
+        const hypoName = entry.d.hypocenter_name || '震源地';
+
+        if (!entry.initialAnnounced) {
+          entry.initialAnnounced = true;
+          if (userRemain > 0) {
+            notifyAndroidVoiceAnnounce(`${userLocName}で地震。到達まで、あと${userRemain}秒。`, true);
+          } else {
+            notifyAndroidVoiceAnnounce(`${userLocName}。${hypoName}で地震。主要動到達。`, true);
+            entry.arrivalAnnounced = true;
+          }
+          entry.lastAnnouncedSecond = userRemain;
+        } else if (!entry.arrivalAnnounced) {
+          if (userRemain <= 0) {
+            entry.arrivalAnnounced = true;
+            notifyAndroidVoiceAnnounce("地震到達", true);
+          } else if (userRemain <= 10 && userRemain >= 1) {
+            // Count down 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+            if (entry.lastAnnouncedSecond !== userRemain) {
+              entry.lastAnnouncedSecond = userRemain;
+              notifyAndroidVoiceAnnounce(`${userRemain}`, true);
+            }
+          } else if (userRemain > 10) {
+            // Milestones at 50, 40, 30, 20, 15 seconds
+            if ((userRemain === 50 || userRemain === 40 || userRemain === 30 || userRemain === 20 || userRemain === 15) && entry.lastAnnouncedSecond !== userRemain) {
+              entry.lastAnnouncedSecond = userRemain;
+              notifyAndroidVoiceAnnounce(`到達まで、あと${userRemain}秒`, true);
+            }
+          }
+        }
+      }
+    }
+  } catch(e) {
+    console.warn("User location & voice calculation error", e);
+  }
+}
+
+function ensureEewEntry(key){
+  let entry = activeEews.get(key);
+  if (entry) return entry;
+  const cardEl = createEewCardDom();
+  document.getElementById('eew-alert-stack').appendChild(cardEl);
+  entry = {
+    key, d: null, cardEl, hideTimer: null, waveTimer: null,
+    layerGroup: null, regionMarkersGroup: null, circleP: null, circleS: null,
+    epicenter: null, labelP: null, labelS: null, originEpochMs: null, depthKm: null,
+    regionalResults: [], initialAnnounced: false, arrivalAnnounced: false, cancelAnnounced: false, lastAnnouncedSecond: null
+  };
+  ensureEewWaveLayers(entry);
+  activeEews.set(key, entry);
+  return entry;
+}
+
+function clearEewWaveLayers(entry){
+  if (entry.layerGroup){ map.removeLayer(entry.layerGroup); entry.layerGroup = null; }
+  if (entry.regionMarkersGroup){ map.removeLayer(entry.regionMarkersGroup); entry.regionMarkersGroup = null; }
+  if (entry.waveTimer){ clearInterval(entry.waveTimer); entry.waveTimer = null; }
+  entry.originEpochMs = null;
+  entry.depthKm = null;
+}
+
+function removeEewEntry(key){
+  const entry = activeEews.get(key);
+  if (!entry) return;
+  clearEewWaveLayers(entry);
+  if (entry.hideTimer){ clearTimeout(entry.hideTimer); entry.hideTimer = null; }
+  if (entry.cardEl) entry.cardEl.remove();
+  activeEews.delete(key);
+  notifyAndroidStatus(false, "");
+}
+
+function showEewDetectToast(autoClearMs){
+  const toast = document.getElementById('eew-detect-toast');
+  if (!toast) return;
+  toast.classList.add('show');
+  if (eewDetectHideTimer) clearTimeout(eewDetectHideTimer);
+  eewDetectHideTimer = setTimeout(() => toast.classList.remove('show'), Math.max(2000, autoClearMs || 8000));
+  notifyAndroidStatus(true, "緊急地震速報の発表を検出");
+}
+
+function showEewAlert(d){
+  document.getElementById('eew-detect-toast')?.classList.remove('show');
+  const key = eewEventKey(d);
+  const entry = ensureEewEntry(key);
+  entry.d = d;
+
+  const card = entry.cardEl.querySelector('.eew-alert-card');
+  card.classList.toggle('cancelled', !!d.cancelled);
+  entry.cardEl.querySelector('.eew-alert-title').textContent =
+    d.cancelled ? '緊急地震速報 取消' : (d.test ? '緊急地震速報（警報・テスト）' : '緊急地震速報（警報）');
+  entry.cardEl.querySelector('.eew-alert-serial').textContent = `第${d.serial || '?'}報`;
+  entry.cardEl.querySelector('.eew-alert-hypo').textContent = d.hypocenter_name || '震源不明';
+
+  const scaleBox = entry.cardEl.querySelector('.eew-alert-scale-box');
+  if (d.cancelled){
+    scaleBox.style.color = '#64748b';
+    scaleBox.style.fontSize = '14px';
+    scaleBox.textContent = '中止';
+  } else {
+    scaleBox.style.color = d.max_scale_color || '#ff2020';
+    scaleBox.style.fontSize = '26px';
+    scaleBox.textContent = d.max_scale_text || '5+';
+  }
+
+  const originText = (typeof d.origin_epoch === 'number')
+    ? new Date(d.origin_epoch * 1000).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }) + ' 発生'
+    : '';
+  entry.cardEl.querySelector('.eew-alert-time').textContent = d.cancelled ? '' : originText;
+
+  const mag = (d.magnitude !== null && d.magnitude !== undefined) ? Number(d.magnitude).toFixed(1) : '不明';
+  const depthText = (d.depth != null) ? `${d.depth}km` : 'ごく浅い';
+  entry.cardEl.querySelector('.eew-alert-sub').textContent =
+    d.cancelled ? 'この地震に関する速報は取り消されました' : `M${mag} / 深さ${depthText}`;
+
+  // Make sure card is visible immediately
+  entry.cardEl.classList.add('show');
+
+  const hasLatLon = !d.cancelled && typeof d.origin_epoch === 'number'
+    && typeof d.hypocenter_lat === 'number' && typeof d.hypocenter_lon === 'number';
+
+  let userIntensityScale = 0;
+  if (hasLatLon) {
+    const userCalc = IntensityCalculator.calculateSiteIntensity(
+      d.hypocenter_lat, d.hypocenter_lon, d.depth || 10, d.magnitude || 6.0,
+      userLocation.lat, userLocation.lon, userLocation.arv
+    );
+    userIntensityScale = userCalc.scaleVal;
+
+    ensureEewWaveLayers(entry);
+    const latlng = [d.hypocenter_lat, d.hypocenter_lon];
+    entry.circleP.setLatLng(latlng).setRadius(0);
+    entry.circleS.setLatLng(latlng).setRadius(0);
+    entry.epicenter.setLatLng(latlng);
+    entry.originEpochMs = d.origin_epoch * 1000;
+    entry.depthKm = d.depth || 10;
+    
+    renderRegionalIntensityMarkers(entry, d);
+    updateEewWave(entry);
+
+    if (entry.waveTimer) clearInterval(entry.waveTimer);
+    entry.waveTimer = setInterval(() => updateEewWave(entry), 200);
+
+    // Zoom & Pan to epicenter
+    if (isLightweightMode) {
+      centerRadarOn(latlng);
+    } else {
+      try {
+        map.setView(latlng, 6, { animate: true });
+      } catch(e) {}
+    }
+  }
+
+  notifyAndroidStatus(true, `${d.hypocenter_name || '震源不明'} 最大震度${d.max_scale_text || '?'}`);
+  
+  if (d.cancelled) {
+    notifyAndroidAlarm('cancel');
+    notifyAndroidVoiceAnnounce("緊急地震速報は取り消されました。", true);
+  } else if (userIntensityScale >= 30 || d.test) {
+    // 天気設定地域の予想震度が3以上、またはテスト訓練の場合に警報アラームを鳴らす
+    notifyAndroidAlarm('warning');
+  }
+}
+
+// ============================================================
+// 6. UI TOGGLES & CONTROLS
+// ============================================================
+document.getElementById('min-intensity-filter').addEventListener('change', (e) => {
+  currentFilterScale = Number(e.target.value) || 10;
+  for (const entry of activeEews.values()) {
+    if (entry.d) renderRegionalIntensityMarkers(entry, entry.d);
+  }
+});
+
+// ============================================================
+// 7. WEBSOCKET & TEST SCENARIOS
+// ============================================================
+let p2pSocket = null;
+let p2pReconnectTimer = null;
+let p2pReconnectDelay = 2000;
+
+function updateWsStatus(status, text){
+  const dot = document.getElementById('ws-status-dot');
+  const textEl = document.getElementById('ws-status-text');
+  if (!dot || !textEl) return;
+  dot.className = `live-dot ${status}`;
+  textEl.textContent = text;
+}
+
+function connectP2pWebSocket(){
+  if (p2pReconnectTimer){ clearTimeout(p2pReconnectTimer); p2pReconnectTimer = null; }
+  try {
+    updateWsStatus('connecting', 'P2PQuake WS 接続中…');
+    p2pSocket = new WebSocket('wss://api.p2pquake.net/v2/ws');
+  } catch (err) {
+    updateWsStatus('error', 'WS接続失敗 (再試行中)');
+    scheduleReconnect();
+    return;
+  }
+
+  p2pSocket.onopen = () => {
+    p2pReconnectDelay = 2000;
+    updateWsStatus('', 'P2PQuake LIVE');
+  };
+
+  p2pSocket.onmessage = (event) => {
+    let item;
+    try { item = JSON.parse(event.data); } catch (e) { return; }
+    processRawP2PMessage(item);
+  };
+
+  p2pSocket.onclose = () => {
+    updateWsStatus('connecting', 'WS切断 再接続中…');
+    p2pSocket = null;
+    scheduleReconnect();
+  };
+
+  p2pSocket.onerror = () => {
+    updateWsStatus('error', 'WSエラー');
+  };
+}
+
+function scheduleReconnect(){
+  if (p2pReconnectTimer) return;
+  p2pReconnectTimer = setTimeout(() => {
+    p2pReconnectTimer = null;
+    connectP2pWebSocket();
+  }, p2pReconnectDelay);
+  p2pReconnectDelay = Math.min(p2pReconnectDelay * 1.5, 30000);
+}
+
+function parseJstTimeToEpoch(raw){
+  if (!raw) return null;
+  const m = String(raw).trim().match(/^(\d{4})\/(\d{2})\/(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, se, frac] = m;
+  const ms = frac ? Number((frac + "000").slice(0, 3)) : 0;
+  const utcMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se), ms) - 9 * 60 * 60 * 1000;
+  return utcMs / 1000;
+}
+
+function processRawP2PMessage(item){
+  if (!item || !item.code) return;
+  if (item.code === 554){
+    showEewDetectToast(8000);
+  } else if (item.code === 556){
+    const eq = item.earthquake || {};
+    const hypo = eq.hypocenter || {};
+    const issue = item.issue || {};
+    const cancelled = Boolean(item.cancelled);
+
+    let lat = hypo.latitude;
+    let lon = hypo.longitude;
+    if (typeof lat !== "number" || typeof lon !== "number" || lat <= -180 || lon <= -180){
+      lat = null; lon = null;
+    }
+    let depth = hypo.depth;
+    if (typeof depth !== "number" || depth < 0) depth = 10;
+    const originEpoch = cancelled ? null : parseJstTimeToEpoch(eq.originTime);
+
+    const eewData = {
+      id: Date.now(),
+      event_id: issue.eventId ?? null,
+      test: Boolean(item.test),
+      cancelled: cancelled,
+      serial: issue.serial || '1',
+      hypocenter_name: hypo.name || '震源不明',
+      hypocenter_lat: lat,
+      hypocenter_lon: lon,
+      magnitude: hypo.magnitude,
+      depth: depth,
+      max_scale: cancelled ? null : 50,
+      max_scale_text: cancelled ? null : '5強',
+      max_scale_color: cancelled ? null : '#ff6300',
+      origin_epoch: originEpoch,
+      duration_ms: 35000
+    };
+
+    showEewAlert(eewData);
+  }
+}
+
+// Android Interface
+function notifyAndroidStatus(isActive, summary){
+  if (window.AndroidEEW && typeof window.AndroidEEW.onEewStatusChanged === 'function'){
+    try { window.AndroidEEW.onEewStatusChanged(Boolean(isActive), summary || ""); } catch(e){}
+  }
+}
+
+function notifyAndroidAlarm(soundType){
+  if (window.AndroidEEW && typeof window.AndroidEEW.onPlayAlarmSound === 'function'){
+    try { window.AndroidEEW.onPlayAlarmSound(soundType); } catch(e){}
+  }
+}
+
+function playWebBeep(freq, durationMs) {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!window._eewAudioCtx) {
+      window._eewAudioCtx = new AudioContextClass();
+    }
+    const ctx = window._eewAudioCtx;
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0.35, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (durationMs / 1000));
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + (durationMs / 1000));
+  } catch(e) {}
+}
+
+function notifyAndroidVoiceAnnounce(text, flush){
+  const num = parseInt(text, 10);
+  if (!isNaN(num) && num >= 1 && num <= 10) {
+    playWebBeep(num <= 3 ? 1480 : 1046, num <= 3 ? 120 : 60);
+  }
+  if (window.AndroidEEW && typeof window.AndroidEEW.onVoiceAnnounce === 'function'){
+    try { window.AndroidEEW.onVoiceAnnounce(text, Boolean(flush)); } catch(e){}
+  }
+}
+
+window.setUserLocation = function(name, pref, lat, lon, arv){
+  userLocation = {
+    name: name || "東京都２３区",
+    pref: pref || "東京都",
+    lat: Number(lat) || 35.6895,
+    lon: Number(lon) || 139.6917,
+    arv: Number(arv) || 1.85
+  };
+  initUserMarker();
+};
+
+window.runTestScenario = function(scenarioKey){
+  const nowEpoch = Math.floor(Date.now() / 1000);
+
+  function createTestAlert(baseData) {
+    if (baseData.cancelled) {
+      showEewAlert(baseData);
+      return;
+    }
+    const distKm = IntensityCalculator.distanceKm(baseData.hypocenter_lat, baseData.hypocenter_lon, userLocation.lat, userLocation.lon);
+    const depth = baseData.depth || 10;
+    const travelTimeS = JmaSeismicWaveModel.travelTimeS(distKm, depth);
+    // Provide a crisp 12-second countdown so initial announcement and 10s countdown start immediately
+    const targetRemainS = 12;
+    const elapsedSec = Math.max(2, Math.round(travelTimeS - targetRemainS));
+    baseData.origin_epoch = nowEpoch - elapsedSec;
+    showEewAlert(baseData);
+  }
+
+  if (scenarioKey === 'hyuganada_m71'){
+    // 日向灘 M7.1 深さ30km
+    createTestAlert({
+      id: 9001,
+      event_id: 'test_hyuganada_2026',
+      test: true,
+      cancelled: false,
+      serial: '3',
+      hypocenter_name: '日向灘',
+      hypocenter_lat: 31.8,
+      hypocenter_lon: 131.7,
+      magnitude: 7.1,
+      depth: 30,
+      max_scale: 55,
+      max_scale_text: '6弱',
+      max_scale_color: '#ff2020'
+    });
+  } else if (scenarioKey === 'noto_m76'){
+    // 能登半島 M7.6 深さ16km
+    createTestAlert({
+      id: 9002,
+      event_id: 'test_noto_2026',
+      test: true,
+      cancelled: false,
+      serial: '5',
+      hypocenter_name: '能登半島沖',
+      hypocenter_lat: 37.5,
+      hypocenter_lon: 137.3,
+      magnitude: 7.6,
+      depth: 16,
+      max_scale: 70,
+      max_scale_text: '7',
+      max_scale_color: '#a800a8'
+    });
+  } else if (scenarioKey === 'nankai_m82'){
+    // 南海トラフ M8.2 深さ25km
+    createTestAlert({
+      id: 9003,
+      event_id: 'test_nankai_2026',
+      test: true,
+      cancelled: false,
+      serial: '7',
+      hypocenter_name: '潮岬沖（南海トラフ）',
+      hypocenter_lat: 33.2,
+      hypocenter_lon: 135.8,
+      magnitude: 8.2,
+      depth: 25,
+      max_scale: 70,
+      max_scale_text: '7',
+      max_scale_color: '#a800a8'
+    });
+  } else if (scenarioKey === 'tokyo_m65'){
+    // 東京湾 M6.5 深さ45km
+    createTestAlert({
+      id: 9004,
+      event_id: 'test_tokyo_2026',
+      test: true,
+      cancelled: false,
+      serial: '2',
+      hypocenter_name: '東京湾',
+      hypocenter_lat: 35.5,
+      hypocenter_lon: 139.9,
+      magnitude: 6.5,
+      depth: 45,
+      max_scale: 50,
+      max_scale_text: '5強',
+      max_scale_color: '#ff6300'
+    });
+  } else if (scenarioKey === 'cancel_demo'){
+    createTestAlert({
+      id: 9005,
+      event_id: 'test_cancel_2026',
+      test: true,
+      cancelled: true,
+      serial: '取消',
+      hypocenter_name: '房総半島南方沖',
+      hypocenter_lat: 34.5,
+      hypocenter_lon: 140.2,
+      magnitude: null,
+      depth: null,
+      max_scale: null,
+      max_scale_text: null,
+      origin_epoch: null
+    });
+  }
+};
+
+window.setMinScale = function(minScale){
+  const scaleNum = Number(minScale) || 10;
+  const select = document.getElementById('min-intensity-filter');
+  if (select) select.value = String(scaleNum);
+  currentFilterScale = scaleNum;
+  for (const entry of activeEews.values()) {
+    if (entry.d) renderRegionalIntensityMarkers(entry, entry.d);
+  }
+};
+
+window.setLightweightMode = function(enabled){
+  isLightweightMode = Boolean(enabled);
+  applyLightweightMode();
+};
+
+window.addEventListener('DOMContentLoaded', () => {
+  connectP2pWebSocket();
+});
+</script>
+</body>
+</html>

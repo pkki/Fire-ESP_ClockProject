@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.net.Uri
 import android.view.Surface
@@ -84,7 +85,10 @@ fun BackgroundVideoLayer(
                         if (!activeVideo.customVideoPath.isNullOrBlank()) {
                             CustomVideoTexturePlayer(
                                 videoPath = activeVideo.customVideoPath,
-                                playAudio = activeVideo.playVideoAudio
+                                playAudio = activeVideo.playVideoAudio,
+                                volume = activeVideo.volume,
+                                durationSeconds = activeVideo.durationSeconds,
+                                onVideoEnded = onDismiss
                             )
                         }
                     }
@@ -134,6 +138,15 @@ fun BackgroundVideoLayer(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
+                    if (activeVideo.playVideoAudio) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "🔊 動画音声再生中",
+                            color = Color(0xFF80D8FF),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                     Spacer(modifier = Modifier.width(12.dp))
                     Surface(
                         shape = CircleShape,
@@ -161,43 +174,75 @@ fun BackgroundVideoLayer(
 fun CustomVideoTexturePlayer(
     videoPath: String,
     playAudio: Boolean,
+    volume: Float = 0.85f,
+    durationSeconds: Int = 60,
+    onVideoEnded: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
-
-    DisposableEffect(videoPath, playAudio) {
-        val file = File(videoPath)
-        if (!file.exists()) {
-            return@DisposableEffect onDispose {}
-        }
-
-        val player = MediaPlayer().apply {
-            try {
-                setDataSource(context, Uri.fromFile(file))
-                isLooping = true
-                if (!playAudio) {
-                    setVolume(0f, 0f)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        mediaPlayer = player
-
-        onDispose {
-            try {
-                if (player.isPlaying) {
-                    player.stop()
-                }
-                player.release()
-            } catch (_: Exception) {}
-            mediaPlayer = null
-        }
-    }
+    val currentOnVideoEnded by androidx.compose.runtime.rememberUpdatedState(onVideoEnded)
 
     AndroidView(
         factory = { ctx ->
+            var player: MediaPlayer? = null
+            var activeSurface: Surface? = null
+
+            fun startPlayback(texture: android.graphics.SurfaceTexture) {
+                try {
+                    player?.stop()
+                    player?.release()
+                    player = null
+                    activeSurface?.release()
+                    activeSurface = null
+
+                    val file = File(videoPath)
+                    if (!file.exists()) {
+                        android.util.Log.e("CustomVideoTexturePlayer", "Video file does not exist: $videoPath")
+                        currentOnVideoEnded?.invoke()
+                        return
+                    }
+
+                    val surface = Surface(texture)
+                    activeSurface = surface
+
+                    val mp = MediaPlayer().apply {
+                        setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                                .build()
+                        )
+                        java.io.FileInputStream(file).use { fis ->
+                            setDataSource(fis.fd)
+                        }
+                        setSurface(surface)
+                        isLooping = (durationSeconds != -1)
+                        if (durationSeconds == -1) {
+                            setOnCompletionListener {
+                                currentOnVideoEnded?.invoke()
+                            }
+                        }
+                        setOnErrorListener { _, what, extra ->
+                            android.util.Log.e("CustomVideoTexturePlayer", "MediaPlayer error: what=$what, extra=$extra")
+                            currentOnVideoEnded?.invoke()
+                            true
+                        }
+                        if (!playAudio) {
+                            setVolume(0f, 0f)
+                        } else {
+                            setVolume(volume, volume)
+                        }
+                        setOnPreparedListener { p ->
+                            p.start()
+                        }
+                        prepareAsync()
+                    }
+                    player = mp
+                } catch (e: Exception) {
+                    android.util.Log.e("CustomVideoTexturePlayer", "Error initializing MediaPlayer", e)
+                    currentOnVideoEnded?.invoke()
+                }
+            }
+
             TextureView(ctx).apply {
                 layoutParams = FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -209,32 +254,31 @@ fun CustomVideoTexturePlayer(
                         width: Int,
                         height: Int
                     ) {
-                        mediaPlayer?.let { player ->
-                            try {
-                                val surface = Surface(surfaceTexture)
-                                player.setSurface(surface)
-                                player.prepareAsync()
-                                player.setOnPreparedListener {
-                                    it.start()
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
+                        startPlayback(surfaceTexture)
                     }
 
                     override fun onSurfaceTextureSizeChanged(
-                        surface: android.graphics.SurfaceTexture,
+                        surfaceTexture: android.graphics.SurfaceTexture,
                         width: Int,
                         height: Int
                     ) {}
 
-                    override fun onSurfaceTextureDestroyed(surface: android.graphics.SurfaceTexture): Boolean {
-                        mediaPlayer?.setSurface(null)
+                    override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
+                        try {
+                            player?.stop()
+                            player?.release()
+                            player = null
+                            activeSurface?.release()
+                            activeSurface = null
+                        } catch (_: Exception) {}
                         return true
                     }
 
-                    override fun onSurfaceTextureUpdated(surface: android.graphics.SurfaceTexture) {}
+                    override fun onSurfaceTextureUpdated(surfaceTexture: android.graphics.SurfaceTexture) {}
+                }
+
+                if (isAvailable && surfaceTexture != null) {
+                    startPlayback(surfaceTexture!!)
                 }
             }
         },

@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,10 +23,10 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.ViewCarousel
-import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,25 +41,28 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.camera.IpCameraStatus
 import com.example.model.ClockPreferencesState
 
 @Composable
 fun ControlDock(
     preferences: ClockPreferencesState,
-    onOpenFacePicker: () -> Unit,
-    onOpenPalettePicker: () -> Unit,
-    onOpenChimeSettings: () -> Unit,
+    ipCameraStatus: IpCameraStatus,
+    timerSeconds: Int = 0,
+    isEspConnected: Boolean = false,
+    onOpenSettings: (SettingsTab) -> Unit,
     onOpenTimer: () -> Unit,
-    onToggleWeather: () -> Unit,
+    onOpenIrRemote: () -> Unit = {},
     onToggleNightMode: () -> Unit,
     onToggleKioskLock: () -> Unit,
     onUnlockLongPress: () -> Unit,
+    onUserInteraction: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(start = 20.dp, end = 20.dp, bottom = 18.dp, top = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -65,67 +70,99 @@ fun ControlDock(
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color(0xDD111116))
                 .border(1.dp, Color(0x38FFFFFF), RoundedCornerShape(24.dp))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 16.dp, vertical = 6.dp)
                 .testTag("control_dock_row"),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Clock Face Switcher
+            // Master Settings Button (Clock Face, Color Palette, Weather, Chime, IP Camera, etc.)
             DockActionButton(
-                icon = Icons.Default.ViewCarousel,
-                label = "文字盤",
-                contentDescription = "文字盤切り替え",
-                testTag = "btn_face_picker",
-                onClick = onOpenFacePicker
+                icon = Icons.Default.Settings,
+                label = "設定",
+                contentDescription = "総合設定",
+                testTag = "btn_unified_settings",
+                tint = Color(0xFF00E5FF),
+                onClick = {
+                    onUserInteraction()
+                    onOpenSettings(SettingsTab.FACE_PALETTE)
+                }
             )
 
-            // Color Palette Switcher
-            DockActionButton(
-                icon = Icons.Default.Palette,
-                label = "カラー",
-                contentDescription = "カラー切り替え",
-                testTag = "btn_palette_picker",
-                tint = preferences.colorPalette.primary,
-                onClick = onOpenPalettePicker
-            )
+            // IP Camera Status & Shortcut Button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            onUserInteraction()
+                            onOpenSettings(SettingsTab.IP_CAMERA)
+                        }
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .testTag("btn_ip_camera_dock")
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(if (ipCameraStatus.isRunning) Color(0x33FF1744) else Color(0x18FFFFFF)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (ipCameraStatus.isRunning) Icons.Default.Videocam else Icons.Default.VideocamOff,
+                        contentDescription = "IPカメラ設定",
+                        tint = if (ipCameraStatus.isRunning) Color(0xFFFF1744) else Color(0xFF888896),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (ipCameraStatus.isRunning) "配信中" else "IPカメラ",
+                    color = if (ipCameraStatus.isRunning) Color(0xFFFF5252) else Color(0xFF9E9EA8),
+                    fontSize = 9.sp,
+                    fontWeight = if (ipCameraStatus.isRunning) FontWeight.Bold else FontWeight.Medium
+                )
+            }
 
-            // Hourly Chime settings
-            DockActionButton(
-                icon = Icons.Default.NotificationsActive,
-                label = "時報",
-                contentDescription = "時報設定",
-                testTag = "btn_chime_settings",
-                tint = if (preferences.hourlyChimeEnabled) preferences.colorPalette.primary else Color(0xFF6E6E78),
-                onClick = onOpenChimeSettings
-            )
-
-            // Desk Timer
+            // Desk Timer Shortcut
             DockActionButton(
                 icon = Icons.Default.HourglassBottom,
                 label = "タイマー",
                 contentDescription = "卓上タイマー",
                 testTag = "btn_desk_timer",
-                onClick = onOpenTimer
+                onClick = {
+                    onUserInteraction()
+                    onOpenTimer()
+                }
             )
 
-            // Weather toggle
+            // Smart IR Remote Shortcut
             DockActionButton(
-                icon = Icons.Default.WbSunny,
-                label = "天気",
-                contentDescription = "天気表示切替",
-                testTag = "btn_weather_toggle",
-                tint = if (preferences.showWeather) preferences.colorPalette.primary else Color(0xFF6E6E78),
-                onClick = onToggleWeather
+                icon = Icons.Default.Sensors,
+                label = "リモコン",
+                contentDescription = "スマート家電リモコン",
+                testTag = "btn_ir_remote_dock",
+                tint = Color(0xFF38BDF8),
+                onClick = {
+                    onUserInteraction()
+                    onOpenIrRemote()
+                }
             )
 
-            // Night Stand Mode
+            // Night Stand Mode Toggle
             DockActionButton(
                 icon = Icons.Default.Bedtime,
                 label = "常夜灯",
                 contentDescription = "ナイトモード (常夜灯)",
                 testTag = "btn_night_mode",
                 tint = if (preferences.isNightMode) Color(0xFFFFB300) else Color(0xFF888896),
-                onClick = onToggleNightMode
+                onClick = {
+                    onUserInteraction()
+                    onToggleNightMode()
+                }
             )
 
             // Kiosk Lock Toggle (with long-press unlock support)
@@ -136,11 +173,11 @@ fun ControlDock(
                     .pointerInput(preferences.isKioskLocked) {
                         detectTapGestures(
                             onTap = {
-                                if (!preferences.isKioskLocked) {
-                                    onToggleKioskLock()
-                                }
+                                onUserInteraction()
+                                onToggleKioskLock()
                             },
                             onLongPress = {
+                                onUserInteraction()
                                 onUnlockLongPress()
                             }
                         )

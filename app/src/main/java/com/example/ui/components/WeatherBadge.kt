@@ -1,15 +1,14 @@
 package com.example.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,13 +51,22 @@ fun WeatherBadge(
         WeatherCondition.SNOW -> Icons.Default.AcUnit
     }
 
+    val iconColor = when (weather.condition) {
+        WeatherCondition.CLEAR -> Color(0xFFFFB300)
+        WeatherCondition.PARTLY_CLOUDY -> Color(0xFFFFD54F)
+        WeatherCondition.CLOUDY -> Color(0xFFB0BEC5)
+        WeatherCondition.RAIN -> Color(0xFF29B6F6)
+        WeatherCondition.THUNDERSTORM -> Color(0xFFFFCA28)
+        WeatherCondition.SNOW -> Color(0xFF81D4FA)
+    }
+
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0x221A1A22))
-            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0x40141420))
+            .border(1.2.dp, Color(0x40FFFFFF), RoundedCornerShape(24.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 20.dp, vertical = 10.dp)
             .testTag("weather_badge"),
         contentAlignment = Alignment.Center
     ) {
@@ -66,31 +74,77 @@ fun WeatherBadge(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
+            // Weather icon (Large & vivid)
             Icon(
                 imageVector = icon,
                 contentDescription = weather.conditionText,
-                tint = accentColor,
-                modifier = Modifier.size(16.dp)
+                tint = iconColor,
+                modifier = Modifier.size(36.dp)
             )
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            Text(
-                text = "${weather.cityName}  ${weather.temperatureCelsius}°C  ${weather.conditionText}",
-                color = Color(0xFFE2E2E8),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.5.sp
-            )
+            // Main temperature & Condition prominently displayed
+            Column {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = "${weather.temperatureCelsius}°C",
+                        color = Color.White,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-1).sp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = weather.conditionText,
+                        color = if (iconColor != Color(0xFFB0BEC5)) iconColor else Color(0xFFE0E0E0),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
 
-            Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
-            Text(
-                text = "H:${weather.highTemp}° L:${weather.lowTemp}°  💧${weather.humidityPercent}%",
-                color = Color(0xFF888894),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Normal
-            )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = weather.cityName,
+                        color = Color(0xFFCFD8DC),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "最高 ${weather.highTemp}°",
+                        color = Color(0xFFFF7043),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "最低 ${weather.lowTemp}°",
+                        color = Color(0xFF42A5F5),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (weather.currentUmbrellaStatus != com.example.model.UmbrellaStatus.NONE) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "${weather.currentUmbrellaStatus.iconText}${weather.currentUmbrellaStatus.label}",
+                            color = if (weather.currentUmbrellaStatus == com.example.model.UmbrellaStatus.FOLDING) Color(0xFFFFE082) else Color(0xFF81D4FA),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else if (weather.humidityPercent > 0) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "💧${weather.humidityPercent}%",
+                            color = Color(0xFFB0BEC5),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }

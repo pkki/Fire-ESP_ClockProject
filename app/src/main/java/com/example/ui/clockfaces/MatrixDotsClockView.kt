@@ -1,6 +1,8 @@
 package com.example.ui.clockfaces
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -11,10 +13,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -46,19 +50,39 @@ fun MatrixDotsClockView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 20.dp, vertical = 12.dp)
             .testTag("matrix_dots_clock_view"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "DOT-MATRIX · ${timeState.timezoneDisplayName}",
-            color = activeDotColor.copy(alpha = 0.6f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Light,
-            letterSpacing = 2.sp,
-            modifier = Modifier.padding(bottom = 20.dp)
-        )
+        // Prominent Date Display
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x3314141E))
+                .border(1.2.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = timeState.formattedDateFullJa,
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = "LED MATRIX",
+                color = activeDotColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 2.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
 
         BoxWithConstraints(
             modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
@@ -67,7 +91,7 @@ fun MatrixDotsClockView(
             val digitCount = if (preferences.showSeconds) 6 else 4
             val colonCount = if (preferences.showSeconds) 2 else 1
             val totalUnits = digitCount * 5f + colonCount * 2f + (digitCount + colonCount) * 1f
-            val dotSpacing = min(maxWidth.value / totalUnits, maxHeight.value / 12f).dp
+            val dotSpacing = min(maxWidth.value / totalUnits, maxHeight.value / 8.5f).dp
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -100,14 +124,16 @@ fun MatrixDotsClockView(
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "${timeState.formattedDateFullEn.uppercase()} · ${timeState.dayOfWeekJa}",
-            color = Color(0xFF6E6E7A),
-            fontSize = 12.sp,
-            letterSpacing = 1.sp
-        )
+        if (!preferences.is24Hour) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = if (timeState.isPm) "● PM MATRIX" else "○ AM MATRIX",
+                color = activeDotColor,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+        }
     }
 }
 

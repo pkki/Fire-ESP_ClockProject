@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- QinHeng CH340 / CH341 (Very common on ESP8266 NodeMCU & Wemos D1 Mini) -->
+    <usb-device vendor-id="6790" />
+    <usb-device vendor-id="4371" />
+    <!-- Silicon Labs CP2102 / CP2104 (NodeMCU v2 / ESP boards) -->
+    <usb-device vendor-id="4292" />
+    <!-- FTDI FT232R / FT232H / FT231X -->
+    <usb-device vendor-id="1027" />
+    <!-- Arduino & CDC-ACM USB Serial -->
+    <usb-device vendor-id="9025" />
+    <usb-device vendor-id="10755" />
+    <usb-device vendor-id="11914" />
+    <!-- Prolific PL2303 -->
+    <usb-device vendor-id="1659" />
+</resources>

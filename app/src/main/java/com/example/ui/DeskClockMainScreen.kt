@@ -8,18 +8,30 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -30,26 +42,44 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ClockViewModel
 import com.example.model.ClockFace
+import com.example.model.IrRemoteButton
+import com.example.model.WarningSeverity
+import com.example.ui.clockfaces.DigitalStationClockView
 import com.example.ui.clockfaces.MatrixDotsClockView
+import com.example.ui.clockfaces.NeonCyberpunkClockView
+import com.example.ui.clockfaces.NixieTubeClockView
+import com.example.ui.clockfaces.RetroLcdGoldClockView
 import com.example.ui.clockfaces.SevenSegmentClockView
 import com.example.ui.clockfaces.SplitFlapClockView
+import com.example.ui.clockfaces.StationAnalogClockView
+import com.example.ui.clockfaces.StudioBoldClockView
 import com.example.ui.clockfaces.SwissAnalogClockView
 import com.example.ui.clockfaces.TypographicBauhausClockView
+import com.example.ui.components.AlarmRingingOverlay
 import com.example.ui.components.BackgroundVideoLayer
-import com.example.ui.components.ChimeSettingsDialog
 import com.example.ui.components.ControlDock
 import com.example.ui.components.DeskTimerDialog
-import com.example.ui.components.FaceAndPaletteDialog
-import com.example.ui.components.WeatherAndWarningDialog
+import com.example.ui.components.EewFullScreenOverlay
+import com.example.ui.components.EspSensorBottomBar
+import com.example.ui.components.FireAlertOverlay
+import com.example.ui.components.IrQuickControlsSheet
+import com.example.ui.components.PhysicalButtonHudBanner
+import com.example.ui.components.SettingsTab
+import com.example.ui.components.TopControlBar
+import com.example.ui.components.UnifiedSettingsDialog
 import com.example.ui.components.WeatherBadge
+import com.example.ui.components.WeatherDetailDialog
 import com.example.ui.components.WeatherWarningBanner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -57,6 +87,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun DeskClockMainScreen(
     viewModel: ClockViewModel,
+    onUserInteraction: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -65,19 +96,38 @@ fun DeskClockMainScreen(
     val timeState by viewModel.timeState.collectAsState()
     val timerState by viewModel.timerState.collectAsState()
     val weatherState by viewModel.weatherState.collectAsState()
-    val searchResults by viewModel.searchResults.collectAsState()
-    val isSearching by viewModel.isSearching.collectAsState()
-    val isDetectingLocation by viewModel.isDetectingLocation.collectAsState()
+    val isWeatherRefreshing by viewModel.isWeatherRefreshing.collectAsState()
     val scheduledChimes by viewModel.scheduledChimes.collectAsState()
     val customAudioList by viewModel.customAudioList.collectAsState()
     val customVideoList by viewModel.customVideoList.collectAsState()
     val activeBackgroundVideo by viewModel.activeBackgroundVideo.collectAsState()
 
-    // Dialog visibility states
-    var showChimeSettings by remember { mutableStateOf(false) }
-    var showFacePicker by remember { mutableStateOf(false) }
+    // IP Camera states
+    val ipCameraConfig by viewModel.ipCameraConfig.collectAsState()
+    val ipCameraStatus by viewModel.ipCameraStatus.collectAsState()
+    val ipCameraPreviewBitmap by viewModel.ipCameraPreviewBitmap.collectAsState()
+    val ipCameraFps by viewModel.ipCameraFps.collectAsState()
+
+    // ESP8266 / ESP32 Sensor & IR state
+    val espSensorData by viewModel.espSensorData.collectAsState()
+    val irButtons by viewModel.irButtons.collectAsState()
+    var showIrQuickSheet by remember { mutableStateOf(false) }
+
+    // Alarm Clock and Physical Button states
+    val isAlarmRinging by viewModel.isAlarmRinging.collectAsState()
+    val isFireAlertRinging by viewModel.isFireAlertRinging.collectAsState()
+    val fireAlertDetails by viewModel.fireAlertDetails.collectAsState()
+    val lastPhysicalButtonEvent by viewModel.lastPhysicalButtonEvent.collectAsState()
+
+    // Weather Detail Dialog state
+    var showWeatherDetailDialog by remember { mutableStateOf(false) }
+
+    // Unified Settings Dialog state
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var currentSettingsTab by remember { mutableStateOf(SettingsTab.FACE_PALETTE) }
+
+    // Desk Timer Dialog state
     var showTimerDialog by remember { mutableStateOf(false) }
-    var showWeatherDialog by remember { mutableStateOf(false) }
 
     // Kiosk lock notification banner
     var kioskWarningText by remember { mutableStateOf<String?>(null) }
@@ -93,13 +143,33 @@ fun DeskClockMainScreen(
     }
 
     // Main background canvas
-    val bgColor = if (preferences.isNightMode) Color(0xFF020203) else preferences.colorPalette.background
+    val bgColor = when {
+        preferences.isNightMode -> Color(0xFF020203)
+        preferences.clockFace == ClockFace.RETRO_LCD_GOLD -> Color(0xFFE5E272)
+        else -> preferences.colorPalette.background
+    }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(bgColor)
             .testTag("desk_clock_main_screen")
+            .then(
+                if (preferences.isNightMode) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        viewModel.toggleNightMode()
+                        vibrate(context, 40)
+                        kioskWarningText = "☀️ 夜間モードを解除しました"
+                        coroutineScope.launch {
+                            delay(2500)
+                            kioskWarningText = null
+                        }
+                    }
+                } else Modifier
+            )
     ) {
         // 0. Active Background Video Layer (Rendered when chime triggers or during video preview)
         BackgroundVideoLayer(
@@ -107,11 +177,11 @@ fun DeskClockMainScreen(
             onDismiss = { viewModel.dismissBackgroundVideo() }
         )
 
-        // Burn-in prevention container (subtle 1-2 pixel drift)
+        // 1. Burn-in prevention container (subtle 1-2 pixel drift)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 68.dp, top = 36.dp)
+                .padding(bottom = 96.dp, top = 64.dp)
                 .offset(x = timeState.burnInShiftX.dp, y = timeState.burnInShiftY.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -136,92 +206,262 @@ fun DeskClockMainScreen(
                     timeState = timeState,
                     preferences = preferences
                 )
+                ClockFace.NEON_CYBERPUNK -> NeonCyberpunkClockView(
+                    timeState = timeState,
+                    preferences = preferences
+                )
+                ClockFace.NIXIE_TUBE -> NixieTubeClockView(
+                    timeState = timeState,
+                    preferences = preferences
+                )
+                ClockFace.MINIMAL_BOLD -> StudioBoldClockView(
+                    timeState = timeState,
+                    preferences = preferences
+                )
+                ClockFace.ANALOG_STATION -> StationAnalogClockView(
+                    timeState = timeState,
+                    preferences = preferences
+                )
+                ClockFace.DIGITAL_STATION_BLUE -> DigitalStationClockView(
+                    timeState = timeState,
+                    preferences = preferences,
+                    isMatrixTime = false
+                )
+                ClockFace.DIGITAL_STATION_MATRIX -> DigitalStationClockView(
+                    timeState = timeState,
+                    preferences = preferences,
+                    isMatrixTime = true
+                )
+                ClockFace.RETRO_LCD_GOLD -> RetroLcdGoldClockView(
+                    timeState = timeState,
+                    preferences = preferences
+                )
             }
         }
 
-        // Top Information Bar: Weather Badge, Warning Badges, Active Timer
-        if (!preferences.isNightMode) {
+        // 2. Top Information & Control Bar (or Floating Night Mode Exit Banner)
+        if (preferences.isNightMode) {
+            // Prominent Night Mode Exit Pill at Top Center (Ensures the user can instantly exit)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+                    .clip(RoundedCornerShape(30.dp))
+                    .background(Color(0xE61E1E28))
+                    .border(1.2.dp, Color(0xFFFFB300), RoundedCornerShape(30.dp))
+                    .clickable {
+                        viewModel.toggleNightMode()
+                        vibrate(context, 50)
+                        kioskWarningText = "☀️ 夜間モードを解除しました"
+                        coroutineScope.launch {
+                            delay(2500)
+                            kioskWarningText = null
+                        }
+                    }
+                    .padding(horizontal = 20.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bedtime,
+                    contentDescription = null,
+                    tint = Color(0xFFFFB300),
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "夜間常夜灯モード中",
+                    color = Color(0xFFFFE082),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFFFB300))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WbSunny,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = "タップで解除",
+                            color = Color.Black,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        } else {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.TopStart)
-                    .padding(start = 24.dp, end = 24.dp, top = 14.dp),
+                    .align(Alignment.TopCenter)
+                    .padding(start = 20.dp, end = 20.dp, top = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                // Left: Weather Badge
-                if (preferences.showWeather) {
-                    WeatherBadge(
-                        weather = weatherState,
-                        accentColor = preferences.colorPalette.primary,
-                        onClick = { showWeatherDialog = true }
-                    )
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp))
-                }
-
-                // Center: Weather Warning Pills (matching user's reference image)
-                if (preferences.showWarnings && weatherState.warnings.isNotEmpty()) {
-                    WeatherWarningBanner(
-                        warnings = weatherState.warnings,
-                        regionName = preferences.selectedCityName,
-                        onClick = { showWeatherDialog = true },
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp))
-                }
-
-                // Right: Active timer indicator tag if running
-                if (timerState.remainingSeconds > 0) {
-                    val minutes = timerState.remainingSeconds / 60
-                    val seconds = timerState.remainingSeconds % 60
-                    Box(
-                        modifier = Modifier
-                            .background(Color(0x33FFFFFF), RoundedCornerShape(12.dp))
-                            .clickable { showTimerDialog = true }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = String.format(java.util.Locale.US, "TIMER %02d:%02d", minutes, seconds),
-                            color = preferences.colorPalette.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                // Left: Weather Badge + Compact Weather Warnings right below it
+                Column(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (preferences.showWeather) {
+                        WeatherBadge(
+                            weather = weatherState,
+                            accentColor = preferences.colorPalette.primary,
+                            onClick = { showWeatherDetailDialog = true }
                         )
                     }
-                } else {
-                    Spacer(modifier = Modifier.width(1.dp))
+
+                    // Compact warning badges right below weather ("警報系は天気のしたにちょこっとでよい")
+                    if (preferences.showWarnings && weatherState.warnings.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            weatherState.warnings.take(3).forEach { warning ->
+                                val isSevere = warning.severity == WarningSeverity.WARNING || warning.severity == WarningSeverity.SPECIAL_WARNING
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSevere) Color(0x44EF4444) else Color(0x44F59E0B))
+                                        .border(0.8.dp, if (isSevere) Color(0xFFEF4444) else Color(0xFFF59E0B), RoundedCornerShape(6.dp))
+                                        .clickable { showWeatherDetailDialog = true }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "⚠️ ${warning.title}",
+                                            color = if (isSevere) Color(0xFFFF8A80) else Color(0xFFFFD54F),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Right: Controls and Settings moved to Top ("その設定とかそれらは上に移動してほしい")
+                TopControlBar(
+                    preferences = preferences,
+                    ipCameraStatus = ipCameraStatus,
+                    timerSeconds = timerState.remainingSeconds,
+                    isEspConnected = espSensorData.isConnected,
+                    onOpenSettings = { tab ->
+                        currentSettingsTab = tab
+                        showSettingsDialog = true
+                    },
+                    onOpenTimer = { showTimerDialog = true },
+                    onOpenIrRemote = { showIrQuickSheet = true },
+                    onToggleNightMode = {
+                        val willBeNight = !preferences.isNightMode
+                        viewModel.toggleNightMode()
+                        vibrate(context, 40)
+                        kioskWarningText = if (willBeNight) "🌙 夜間常夜灯モード (画面タップでいつでも解除可能)" else "☀️ 通常モードに復帰しました"
+                        coroutineScope.launch {
+                            delay(3000)
+                            kioskWarningText = null
+                        }
+                    },
+                    onToggleKioskLock = {
+                        if (preferences.isKioskLocked) {
+                            kioskWarningText = "施錠中: 鍵アイコン長押し（3秒）または設定画面から解除できます"
+                            vibrate(context, 40)
+                            coroutineScope.launch {
+                                delay(3000)
+                                kioskWarningText = null
+                            }
+                        } else {
+                            viewModel.toggleKioskLock()
+                            vibrate(context, 40)
+                            kioskWarningText = "キオスク固定モードを施錠しました (ホーム/戻る/離脱を防止)"
+                            coroutineScope.launch {
+                                delay(3000)
+                                kioskWarningText = null
+                            }
+                        }
+                    },
+                    onUnlockLongPress = {
+                        viewModel.toggleKioskLock()
+                        vibrate(context, 80)
+                        kioskWarningText = if (preferences.isKioskLocked) "キオスク施錠を解除しました" else "キオスク固定モードを施錠しました"
+                        coroutineScope.launch {
+                            delay(2500)
+                            kioskWarningText = null
+                        }
+                    },
+                    onUserInteraction = onUserInteraction
+                )
+            }
+        }
+
+        // 3. Optional Mini Camera Preview floating on Clock screen (above bottom bar)
+        if (ipCameraConfig.showMiniPreviewOnClock && ipCameraStatus.isRunning && ipCameraPreviewBitmap != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 104.dp)
+                    .size(width = 160.dp, height = 110.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Black)
+                    .border(1.dp, Color(0x6600E5FF), RoundedCornerShape(14.dp))
+                    .clickable {
+                        currentSettingsTab = SettingsTab.IP_CAMERA
+                        showSettingsDialog = true
+                    }
+            ) {
+                Image(
+                    bitmap = ipCameraPreviewBitmap!!.asImageBitmap(),
+                    contentDescription = "Mini IP Camera Preview",
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(4.dp)
+                        .background(Color(0xCC000000), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = "● LIVE ${String.format("%.0f", ipCameraFps)}fps",
+                        color = Color(0xFF00E5FF),
+                        fontSize = 8.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
                 }
             }
         }
 
-        // Bottom Permanently Visible Control Dock
-        ControlDock(
-            preferences = preferences,
-            onOpenFacePicker = { showFacePicker = true },
-            onOpenPalettePicker = { showFacePicker = true },
-            onOpenChimeSettings = { showChimeSettings = true },
-            onOpenTimer = { showTimerDialog = true },
-            onToggleWeather = { showWeatherDialog = true },
-            onToggleNightMode = { viewModel.toggleNightMode() },
-            onToggleKioskLock = {
-                viewModel.toggleKioskLock()
-                vibrate(context, 40)
-            },
-            onUnlockLongPress = {
-                viewModel.toggleKioskLock()
-                vibrate(context, 80)
-                kioskWarningText = if (preferences.isKioskLocked) "キオスクロックを解除しました" else "キオスク固定モードを有効にしました"
-                coroutineScope.launch {
-                    delay(2500)
-                    kioskWarningText = null
-                }
-            },
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
+        // 4. Bottom Large Sensor Display (Clean, prominent environmental data)
+        if (preferences.showEspSensorOnClock && !preferences.isNightMode) {
+            EspSensorBottomBar(
+                sensorData = espSensorData,
+                host = preferences.espSensorHost,
+                accentColor = preferences.colorPalette.primary,
+                onOpenSettings = {
+                    currentSettingsTab = SettingsTab.ESP_SENSOR
+                    showSettingsDialog = true
+                },
+                onRetryConnection = {
+                    viewModel.retryEspSensorConnection()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 6.dp)
+            )
+        }
 
-        // Kiosk warning toast / banner
+        // 5. Kiosk warning toast / banner
         AnimatedVisibility(
             visible = kioskWarningText != null,
             enter = fadeIn(),
@@ -246,86 +486,108 @@ fun DeskClockMainScreen(
             }
         }
 
-        // Dialogs
-        if (showChimeSettings) {
-            ChimeSettingsDialog(
+        // 6. Detailed Weather Dialog
+        if (showWeatherDetailDialog) {
+            WeatherDetailDialog(
+                weather = weatherState,
+                isRefreshing = isWeatherRefreshing,
+                isAutoLocation = preferences.isAutoLocationEnabled,
+                accentColor = preferences.colorPalette.primary,
+                onRefresh = { viewModel.refreshWeather() },
+                onChangeLocation = {
+                    showWeatherDetailDialog = false
+                    currentSettingsTab = SettingsTab.WEATHER
+                    showSettingsDialog = true
+                },
+                onDismiss = {
+                    showWeatherDetailDialog = false
+                    onUserInteraction()
+                }
+            )
+        }
+
+        // 7. Unified Settings Dialog (Consolidates Face, Palette, IP Camera, Chimes, Weather, Protection)
+        if (showSettingsDialog) {
+            UnifiedSettingsDialog(
+                viewModel = viewModel,
                 preferences = preferences,
+                weatherState = weatherState,
                 scheduledChimes = scheduledChimes,
                 customAudioList = customAudioList,
                 customVideoList = customVideoList,
-                onDismiss = { showChimeSettings = false },
-                onSaveChime = { viewModel.saveScheduledChime(it) },
-                onDeleteChime = { viewModel.deleteScheduledChime(it) },
-                onToggleChime = { viewModel.toggleScheduledChime(it) },
-                onImportCustomAudio = { uri, onResult -> viewModel.importCustomAudio(uri, onResult) },
-                onDeleteCustomAudio = { viewModel.deleteCustomAudio(it) },
-                onImportCustomVideo = { uri, onResult -> viewModel.importCustomVideo(uri, onResult) },
-                onDeleteCustomVideo = { viewModel.deleteCustomVideo(it) },
-                onTestPlayChime = { viewModel.testPlayScheduledChime(it) },
-                onTestPlayAudioFile = { viewModel.testPlayCustomAudio(it) },
-                onPreviewVideo = { videoType, path, name, playAudio, duration ->
-                    viewModel.previewBackgroundVideo(videoType, path, name, playAudio, duration)
+                initialTab = currentSettingsTab,
+                onOpenWeatherDetail = {
+                    showSettingsDialog = false
+                    showWeatherDetailDialog = true
                 },
-                onTestSound = { viewModel.testChimeSound(it) },
-                onStopAudio = { viewModel.stopAudioPlayback() },
-                onToggleHourlyChime = { viewModel.setHourlyChime(it) },
-                onToggleHalfHourlyChime = { viewModel.setHalfHourlyChime(it) },
-                onSelectSound = { viewModel.selectChimeSound(it) },
-                onVolumeChange = { viewModel.setChimeVolume(it) },
-                onHoursChange = { start, end -> viewModel.setChimeHours(start, end) }
+                onDismiss = {
+                    showSettingsDialog = false
+                    onUserInteraction()
+                }
             )
         }
 
-        if (showFacePicker) {
-            FaceAndPaletteDialog(
-                preferences = preferences,
-                onDismiss = { showFacePicker = false },
-                onSelectFace = { viewModel.selectClockFace(it) },
-                onSelectPalette = { viewModel.selectColorPalette(it) },
-                onToggle24Hour = { viewModel.toggle24Hour() },
-                onToggleSeconds = { viewModel.toggleShowSeconds() },
-                onToggleWeather = { viewModel.toggleShowWeather() }
-            )
-        }
-
+        // 7. Desk Timer Dialog
         if (showTimerDialog) {
             DeskTimerDialog(
                 timerState = timerState,
                 preferences = preferences,
-                onDismiss = { showTimerDialog = false },
+                onDismiss = {
+                    showTimerDialog = false
+                    onUserInteraction()
+                },
                 onAddMinutes = { viewModel.addTimerMinutes(it) },
                 onTogglePause = { viewModel.toggleTimerPause() },
                 onReset = { viewModel.resetTimer() }
             )
         }
 
-        if (showWeatherDialog) {
-            WeatherAndWarningDialog(
-                preferences = preferences,
-                weather = weatherState,
-                searchResults = searchResults,
-                isSearching = isSearching,
-                isDetectingLocation = isDetectingLocation,
+        // 8. Smart IR Remote Quick Controls Sheet
+        if (showIrQuickSheet) {
+            IrQuickControlsSheet(
+                buttons = irButtons,
+                isConnected = espSensorData.isConnected,
+                onSend = { viewModel.sendIrButton(it) },
+                onOpenSettings = {
+                    currentSettingsTab = SettingsTab.IR_REMOTE
+                    showSettingsDialog = true
+                },
                 onDismiss = {
-                    showWeatherDialog = false
-                    viewModel.clearSearchResults()
-                },
-                onSearch = { viewModel.searchMunicipalities(it) },
-                onClearSearch = { viewModel.clearSearchResults() },
-                onSelectMunicipality = {
-                    viewModel.selectMunicipality(it)
-                    showWeatherDialog = false
-                },
-                onSelectPrefecture = { viewModel.selectPrefecture(it) },
-                onDetectLocation = { onResult ->
-                    viewModel.detectAndSetCurrentLocation(onResult)
-                },
-                onToggleWeather = { viewModel.toggleShowWeather() },
-                onToggleWarnings = { viewModel.toggleShowWarnings() },
-                onToggleDemoWarnings = { viewModel.toggleDemoWarnings() },
-                onRefresh = { viewModel.refreshWeather() }
+                    showIrQuickSheet = false
+                    onUserInteraction()
+                }
             )
         }
+
+        // 9. Emergency Earthquake Warning (EEW) Full-screen Live Map Overlay
+        EewFullScreenOverlay(
+            viewModel = viewModel
+        )
+
+        // 10. PCF8574P Physical Button HUD Notification Banner
+        PhysicalButtonHudBanner(
+            event = lastPhysicalButtonEvent,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 16.dp)
+        )
+
+        // 11. Alarm Ringing Full-Screen Overlay
+        AlarmRingingOverlay(
+            isRinging = isAlarmRinging,
+            currentTimeText = "%02d:%02d".format(timeState.hour24, timeState.minute),
+            preferences = preferences,
+            onStopAlarm = { viewModel.stopAlarm() },
+            onSnoozeAlarm = { viewModel.snoozeAlarm() }
+        )
+
+        // 12. MQ-2 Fire & Smoke Emergency Detection Full-Screen Overlay (「火事です！」)
+        FireAlertOverlay(
+            isFireAlert = isFireAlertRinging,
+            alertInfo = fireAlertDetails,
+            sensorData = espSensorData,
+            onDismissAlert = { viewModel.dismissFireAlert() }
+        )
     }
 }
 

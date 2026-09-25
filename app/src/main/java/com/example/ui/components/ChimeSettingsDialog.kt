@@ -109,6 +109,7 @@ fun ChimeSettingsDialog(
     onToggleHourlyChime: (Boolean) -> Unit,
     onToggleHalfHourlyChime: (Boolean) -> Unit,
     onSelectSound: (ChimeSound) -> Unit,
+    onSelectHourlyCustomAudio: (CustomAudioItem) -> Unit = {},
     onVolumeChange: (Float) -> Unit,
     onHoursChange: (Int, Int) -> Unit
 ) {
@@ -303,11 +304,15 @@ fun ChimeSettingsDialog(
                         )
                         2 -> HourlyChimeSettingsTab(
                             preferences = preferences,
+                            customAudioList = customAudioList,
                             accentColor = accentColor,
                             onToggleHourly = onToggleHourlyChime,
                             onToggleHalfHourly = onToggleHalfHourlyChime,
                             onSelectSound = onSelectSound,
+                            onSelectHourlyCustomAudio = onSelectHourlyCustomAudio,
                             onTestSound = onTestSound,
+                            onTestCustomAudio = onTestPlayAudioFile,
+                            onPickAudio = { audioPickerLauncher.launch("audio/*") },
                             onVolumeChange = onVolumeChange,
                             onHoursChange = onHoursChange
                         )
@@ -913,11 +918,15 @@ fun MediaManagementTab(
 @Composable
 fun HourlyChimeSettingsTab(
     preferences: ClockPreferencesState,
+    customAudioList: List<CustomAudioItem>,
     accentColor: Color,
     onToggleHourly: (Boolean) -> Unit,
     onToggleHalfHourly: (Boolean) -> Unit,
     onSelectSound: (ChimeSound) -> Unit,
+    onSelectHourlyCustomAudio: (CustomAudioItem) -> Unit,
     onTestSound: (ChimeSound) -> Unit,
+    onTestCustomAudio: (String) -> Unit,
+    onPickAudio: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onHoursChange: (Int, Int) -> Unit
 ) {
@@ -986,11 +995,11 @@ fun HourlyChimeSettingsTab(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
-                Text("時報のチャイム音を選択", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("🔔 内蔵チャイム音を選択", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(12.dp))
 
                 ChimeSound.values().forEach { sound ->
-                    val isSelected = preferences.chimeSound == sound
+                    val isSelected = preferences.hourlyChimeSourceType == ChimeAudioSourceType.BUILT_IN && preferences.chimeSound == sound
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1048,6 +1057,116 @@ fun HourlyChimeSettingsTab(
             }
         }
 
+        // Custom Audio Selection Card for Hourly Chimes
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1B1B26)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("📁 取り込んだカスタム音声を時報に使用", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("MP3やWAVの好きな音声ファイルを毎正時に鳴らします", color = Color(0xFFAAAAAA), fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = onPickAudio,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("音声追加", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (customAudioList.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF13131A))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "まだ音声ファイルがありません。「音声追加」またはWeb管理画面から追加できます。",
+                            color = Color(0xFF888888),
+                            fontSize = 12.sp
+                        )
+                    }
+                } else {
+                    customAudioList.forEach { audioItem ->
+                        val isSelected = preferences.hourlyChimeSourceType == ChimeAudioSourceType.CUSTOM_FILE && preferences.hourlyCustomAudioId == audioItem.id
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) accentColor.copy(alpha = 0.15f) else Color(0xFF13131A))
+                                .border(
+                                    1.dp,
+                                    if (isSelected) accentColor else Color(0x22FFFFFF),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .clickable { onSelectHourlyCustomAudio(audioItem) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Audiotrack, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = audioItem.name,
+                                        color = if (isSelected) accentColor else Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "カスタム音声ファイル",
+                                        color = Color(0xFFAAAAAA),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = { onTestCustomAudio(audioItem.filePath) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "試聴",
+                                        tint = if (isSelected) accentColor else Color(0xFF81C784),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                if (isSelected) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "選択中",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Volume & Active Hours Card
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -1058,7 +1177,10 @@ fun HourlyChimeSettingsTab(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.VolumeUp, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("時報音量: ${(preferences.chimeVolume * 100).toInt()}%", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Column {
+                        Text("時報音量: ${(preferences.chimeVolume * 100).toInt()}%", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("鳴らす時の音量（鳴動時のみ一時適用され、終了後に元の端末音量へ戻ります）", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                    }
                 }
 
                 Slider(

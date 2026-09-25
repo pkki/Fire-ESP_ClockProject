@@ -6,6 +6,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,11 +18,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -54,17 +58,8 @@ fun SevenSegmentClockView(
     val palette = preferences.colorPalette
     val isNight = preferences.isNightMode
 
-    // Subtle colon pulse
-    val infiniteTransition = rememberInfiniteTransition(label = "colon_pulse")
-    val colonAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "colon_alpha"
-    )
+    // Clean 1Hz digital colon pulse (ultra-lightweight for older devices)
+    val colonAlpha = if (timeState.second % 2 == 0) 1f else 0.20f
 
     val hourVal = if (preferences.is24Hour) timeState.hour24 else timeState.hour12
     val hStr = hourVal.toString().padStart(2, '0')
@@ -82,27 +77,34 @@ fun SevenSegmentClockView(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Top Header matching user's photo: "Japan Standard Time (JST)"
-        Text(
-            text = timeState.timezoneDisplayName,
-            color = activeColor.copy(alpha = if (isNight) 0.35f else 0.75f),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Light,
-            letterSpacing = 2.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
+        // Top Header & Prominent Date Display
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x3314141E))
+                .border(1.2.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = timeState.formattedDateFullJa,
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = timeState.timezoneDisplayName.uppercase(),
+                color = activeColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 2.sp
+            )
+        }
 
-        // Date Display
-        Text(
-            text = "${timeState.formattedDateFullEn.uppercase()} · ${timeState.dayOfWeekJa}",
-            color = activeColor.copy(alpha = if (isNight) 0.25f else 0.50f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Normal,
-            letterSpacing = 1.5.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(bottom = 20.dp)
-        )
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Main 7-Segment Display Canvas area
         BoxWithConstraints(

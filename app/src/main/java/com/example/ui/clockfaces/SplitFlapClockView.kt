@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -28,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.CurrentTimeState
 import com.example.model.ClockPreferencesState
+import kotlin.math.min
 
 @Composable
 fun SplitFlapClockView(
@@ -51,68 +54,105 @@ fun SplitFlapClockView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 20.dp, vertical = 12.dp)
             .testTag("split_flap_clock_view"),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Subtle top label
-        Text(
-            text = "SOLARI STYLE SPLIT-FLAP · ${timeState.timezoneDisplayName.uppercase()}",
-            color = Color(0xFF6C6C78),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 2.sp,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-
+        // Prominent Date Display
         Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0x3314141E))
+                .border(1.2.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                .padding(horizontal = 24.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            // Hours pair
-            SplitFlapCard(text = hStr, cardWidth = 110.dp, cardHeight = 140.dp, cardBg = cardBg, cardBorder = cardBorder, textColor = textColor)
+            Text(
+                text = timeState.formattedDateFullJa,
+                color = Color.White,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(
+                text = "SPLIT-FLAP",
+                color = accentColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 2.sp
+            )
+        }
 
-            Spacer(modifier = Modifier.width(14.dp))
-            // Colon dots
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(modifier = Modifier.width(8.dp).height(8.dp).background(accentColor, RoundedCornerShape(2.dp)))
-                Box(modifier = Modifier.width(8.dp).height(8.dp).background(accentColor, RoundedCornerShape(2.dp)))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false),
+            contentAlignment = Alignment.Center
+        ) {
+            val showSec = preferences.showSeconds
+            val cardWidth = if (showSec) {
+                min(maxWidth.value / 5.2f, maxHeight.value * 0.62f).dp
+            } else {
+                min(maxWidth.value / 3.4f, maxHeight.value * 0.78f).dp
             }
-            Spacer(modifier = Modifier.width(14.dp))
+            val cardHeight = cardWidth * 1.30f
+            val dotSpacing = cardHeight * 0.16f
 
-            // Minutes pair
-            SplitFlapCard(text = mStr, cardWidth = 110.dp, cardHeight = 140.dp, cardBg = cardBg, cardBorder = cardBorder, textColor = textColor)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                // Hours pair
+                SplitFlapCard(text = hStr, cardWidth = cardWidth, cardHeight = cardHeight, cardBg = cardBg, cardBorder = cardBorder, textColor = textColor)
 
-            if (preferences.showSeconds) {
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(cardWidth * 0.12f))
+                // Colon dots
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(dotSpacing),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Box(modifier = Modifier.width(6.dp).height(6.dp).background(accentColor.copy(alpha = 0.6f), RoundedCornerShape(2.dp)))
-                    Box(modifier = Modifier.width(6.dp).height(6.dp).background(accentColor.copy(alpha = 0.6f), RoundedCornerShape(2.dp)))
+                    Box(modifier = Modifier.size(cardWidth * 0.08f).background(accentColor, RoundedCornerShape(3.dp)))
+                    Box(modifier = Modifier.size(cardWidth * 0.08f).background(accentColor, RoundedCornerShape(3.dp)))
                 }
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(cardWidth * 0.12f))
 
-                // Seconds pair (slightly smaller)
-                SplitFlapCard(text = sStr, cardWidth = 84.dp, cardHeight = 110.dp, cardBg = cardBg, cardBorder = cardBorder, textColor = accentColor)
+                // Minutes pair
+                SplitFlapCard(text = mStr, cardWidth = cardWidth, cardHeight = cardHeight, cardBg = cardBg, cardBorder = cardBorder, textColor = textColor)
+
+                if (showSec) {
+                    Spacer(modifier = Modifier.width(cardWidth * 0.10f))
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(dotSpacing),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(modifier = Modifier.size(cardWidth * 0.06f).background(accentColor.copy(alpha = 0.6f), RoundedCornerShape(2.dp)))
+                        Box(modifier = Modifier.size(cardWidth * 0.06f).background(accentColor.copy(alpha = 0.6f), RoundedCornerShape(2.dp)))
+                    }
+                    Spacer(modifier = Modifier.width(cardWidth * 0.10f))
+
+                    // Seconds pair
+                    val secWidth = cardWidth * 0.82f
+                    val secHeight = cardHeight * 0.82f
+                    SplitFlapCard(text = sStr, cardWidth = secWidth, cardHeight = secHeight, cardBg = cardBg, cardBorder = cardBorder, textColor = accentColor)
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
-
-        // Date readout
-        Text(
-            text = "${timeState.formattedDateFullJa} · ${timeState.dayOfWeekEn}",
-            color = Color(0xFF888896),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 1.sp
-        )
+        if (!preferences.is24Hour) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = if (timeState.isPm) "● PM FLAP" else "○ AM FLAP",
+                color = accentColor,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+        }
     }
 }
 

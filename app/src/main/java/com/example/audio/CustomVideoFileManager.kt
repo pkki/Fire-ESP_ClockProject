@@ -53,6 +53,32 @@ object CustomVideoFileManager {
         }
     }
 
+    suspend fun saveVideoBytes(context: Context, originalName: String, data: ByteArray): CustomVideoItem? = withContext(Dispatchers.IO) {
+        try {
+            val storageDir = File(context.filesDir, "custom_videos")
+            if (!storageDir.exists()) {
+                storageDir.mkdirs()
+            }
+
+            val id = UUID.randomUUID().toString()
+            val cleanName = originalName.ifBlank { "video_${System.currentTimeMillis()}.mp4" }
+            val safeFileName = "${id}_${cleanName.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
+            val destFile = File(storageDir, safeFileName)
+
+            destFile.writeBytes(data)
+
+            return@withContext CustomVideoItem(
+                id = id,
+                name = cleanName,
+                filePath = destFile.absolutePath,
+                dateAdded = System.currentTimeMillis()
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext null
+        }
+    }
+
     suspend fun deleteVideoFile(filePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val file = File(filePath)

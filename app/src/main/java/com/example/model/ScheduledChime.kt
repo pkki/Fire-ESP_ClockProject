@@ -5,7 +5,9 @@ import java.util.UUID
 
 enum class ChimeAudioSourceType {
     BUILT_IN,
-    CUSTOM_FILE
+    CUSTOM_FILE,
+    VIDEO_SOUND, // 動画の音楽をそのままチャイム音源にする (動画単体再生)
+    NONE         // チャイム音なし (リモコン操作や動画再生のみのルーティン用)
 }
 
 enum class ChimeVideoSourceType(val displayName: String, val description: String) {
@@ -39,6 +41,7 @@ data class ActiveBackgroundVideo(
     val customVideoPath: String? = null,
     val customVideoName: String? = null,
     val playVideoAudio: Boolean = false,
+    val volume: Float = 0.85f,
     val startTimeMs: Long = System.currentTimeMillis(),
     val durationSeconds: Int = 60 // 0 = 停止ボタンを押すまで, 30, 60, 180, 300
 )
@@ -62,9 +65,21 @@ data class ScheduledChime(
     val customVideoId: String? = null,
     val customVideoName: String? = null,
     val customVideoPath: String? = null,
-    val videoDurationSeconds: Int = 60, // 0 = 直ちにタップで停止するまで, 30, 60, 180
-    val playVideoAudio: Boolean = false
+    val videoDurationSeconds: Int = 60, // -1 = 動画の長さ(1周再生), 0 = 停止ボタンを押すまで, 30, 60, 180...
+    val playVideoAudio: Boolean = false,
+    // IR remote routine settings (家電リモコン操作連動)
+    val irSendEnabled: Boolean = false,
+    val irButtonId: String? = null,
+    val irButtonName: String? = null
 ) {
+    companion object {
+        const val DURATION_VIDEO_LENGTH = -1
+        const val DURATION_MANUAL_STOP = 0
+    }
+
+    val isVideoOnlyAudio: Boolean
+        get() = sourceType == ChimeAudioSourceType.VIDEO_SOUND || (playVideoAudio && videoSourceType == ChimeVideoSourceType.CUSTOM_FILE)
+
     val formattedTime: String
         get() = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
 
@@ -86,6 +101,15 @@ data class ScheduledChime(
         get() = when (sourceType) {
             ChimeAudioSourceType.BUILT_IN -> builtInSound.displayName
             ChimeAudioSourceType.CUSTOM_FILE -> customAudioName ?: "カスタム音声"
+            ChimeAudioSourceType.VIDEO_SOUND -> "🎬 動画の音声 (${videoDisplayName})"
+            ChimeAudioSourceType.NONE -> if (irSendEnabled) "🔇 チャイム音なし (リモコンのみ)" else "🔇 音なし"
+        }
+
+    val remoteActionDisplayName: String
+        get() = if (irSendEnabled && !irButtonName.isNullOrBlank()) {
+            "📡 リモコン: $irButtonName"
+        } else {
+            "リモコン連動なし"
         }
 
     val videoDisplayName: String
