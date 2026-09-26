@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
@@ -52,6 +53,7 @@ fun ControlDock(
     isEspConnected: Boolean = false,
     onOpenSettings: (SettingsTab) -> Unit,
     onOpenTimer: () -> Unit,
+    onOpenMusicPlayer: () -> Unit = {},
     onOpenIrRemote: () -> Unit = {},
     onToggleNightMode: () -> Unit,
     onToggleKioskLock: () -> Unit,
@@ -149,6 +151,19 @@ fun ControlDock(
                 onClick = {
                     onUserInteraction()
                     onOpenIrRemote()
+                }
+            )
+
+            // Music Player Shortcut
+            DockActionButton(
+                icon = Icons.Default.MusicNote,
+                label = "音楽",
+                contentDescription = "音楽プレイヤー",
+                testTag = "btn_music_player_dock",
+                tint = preferences.colorPalette.primary,
+                onClick = {
+                    onUserInteraction()
+                    onOpenMusicPlayer()
                 }
             )
 

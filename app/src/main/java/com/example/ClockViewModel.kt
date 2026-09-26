@@ -18,6 +18,9 @@ import com.example.audio.ChimeSound
 import com.example.audio.ChimeSynthesizer
 import com.example.audio.CustomAudioFileManager
 import com.example.audio.CustomVideoFileManager
+import com.example.audio.MusicPlayerManager
+import com.example.audio.MusicPlayerState
+import com.example.audio.MusicRepeatMode
 import com.example.camera.AudioStreamManager
 import com.example.camera.CameraStreamManager
 import com.example.camera.IpCameraConfig
@@ -151,6 +154,9 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _playingAudioPath = MutableStateFlow<String?>(null)
     val playingAudioPath: StateFlow<String?> = _playingAudioPath.asStateFlow()
+
+    // --- Dedicated Music Player State ---
+    val musicPlayerState: StateFlow<MusicPlayerState> = MusicPlayerManager.playerState
 
     private val audioManager by lazy {
         getApplication<Application>().getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
@@ -296,6 +302,22 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+
+        // Initialize Dedicated Music Player configuration from preferences
+        val initialRepeat = try {
+            MusicRepeatMode.valueOf(preferences.value.musicPlayerRepeatMode)
+        } catch (_: Exception) {
+            MusicRepeatMode.ALL
+        }
+        MusicPlayerManager.setVolume(preferences.value.musicPlayerVolume)
+        MusicPlayerManager.setRepeatMode(initialRepeat)
+        MusicPlayerManager.onPlaybackStateChanged = { isPlaying, track ->
+            if (isPlaying && track != null) {
+                _playingAudioPath.value = track.filePath
+            } else if (!isPlaying && _playingAudioPath.value == track?.filePath) {
+                _playingAudioPath.value = null
+            }
+        }
     }
 
     fun refreshEspSensor() {
@@ -402,17 +424,22 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 端末内ストレージのURIからESPファームウェア(.bin)を読み込んでOTA書き込み
+     * 端末内ストレージのURIからESPファームウェア(.bin)を読み込んでOTA書き込み (BLE OTAまたはWi-Fi OTA)
      */
-    suspend fun flashEspFirmwareFromUri(uri: Uri, host: String? = null, port: Int? = null): Pair<Boolean, String> {
+    suspend fun flashEspFirmwareFromUri(
+        uri: Uri,
+        host: String? = null,
+        port: Int? = null,
+        onProgress: ((percent: Int, writtenBytes: Int, totalBytes: Int, speedKbps: Float, statusMsg: String) -> Unit)? = null
+    ): Pair<Boolean, String> {
         return try {
             val app = getApplication<Application>()
             val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return Pair(false, "ファームウェアファイルを開けませんでした")
             val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "firmware.bin"
-            val errMsg = flashEspFirmware(fileName, bytes, host, port)
+            val errMsg = flashEspFirmware(fileName, bytes, host, port, onProgress)
             if (errMsg.isEmpty()) {
-                Pair(true, "ESPへのOTAファームウェア転送が完了しました！ESPが再起動します。")
+                Pair(true, "ESPへのOTAファームウェア書き込みが完了しました！ESPが再起動します。")
             } else {
                 Pair(false, errMsg)
             }
@@ -423,10 +450,16 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * WebダッシュボードからアップロードされたESPファームウェア(.bin)をOTA書き込み
+     * WebダッシュボードまたはアプリからESPファームウェア(.bin)をOTA書き込み
      */
-    suspend fun flashEspFirmware(fileName: String, binBytes: ByteArray, host: String? = null, port: Int? = null): String {
-        return espSensorManager.flashEspOta(fileName, binBytes, host, port)
+    suspend fun flashEspFirmware(
+        fileName: String,
+        binBytes: ByteArray,
+        host: String? = null,
+        port: Int? = null,
+        onProgress: ((percent: Int, writtenBytes: Int, totalBytes: Int, speedKbps: Float, statusMsg: String) -> Unit)? = null
+    ): String {
+        return espSensorManager.flashEspFirmware(fileName, binBytes, host, port, onProgress)
     }
 
     fun updateEspSensorPreferences(
@@ -824,7 +857,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                         onImportIrButtonsJson = { json -> importIrButtonsFromJson(json) },
                         onUpdateApk = { name, bytes -> installUploadedApk(name, bytes) },
                         onDownloadAndInstallApk = { url -> downloadAndInstallApk(url) },
-                        onEspOtaUpdate = { name, bytes, h, p -> flashEspFirmware(name, bytes, h, p) }
+                        onEspOtaUpdate = { name, bytes, h, p -> flashEspFirmware(name, bytes, h, p) },
+                        musicPlayerStateProvider = { musicPlayerState.value },
+                        onPlayMusic = { track -> playMusic(track) },
+                        onToggleMusic = { toggleMusicPlayPause() },
+                        onNextMusic = { nextMusicTrack() },
+                        onPrevMusic = { previousMusicTrack() },
+                        onStopMusic = { stopMusic() },
+                        onSetMusicVolume = { vol -> setMusicPlayerVolume(vol) }
                     )
 
                     val started = server.start()
@@ -1653,7 +1693,68 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     fun stopAudioPlayback() {
         _playingAudioPath.value = null
         ChimeAudioPlayer.stop()
+        MusicPlayerManager.stop()
         forceRestoreDeviceVolume()
+    }
+
+    // --- Dedicated Music Player Control & Volume Management ---
+
+    fun playMusic(track: CustomAudioItem, playlist: List<CustomAudioItem> = customAudioList.value) {
+        val volume = preferences.value.musicPlayerVolume
+        val repeatMode = try {
+            MusicRepeatMode.valueOf(preferences.value.musicPlayerRepeatMode)
+        } catch (_: Exception) {
+            MusicRepeatMode.ALL
+        }
+        MusicPlayerManager.playTrack(track, playlist, volume, repeatMode)
+    }
+
+    fun toggleMusicPlayPause() {
+        MusicPlayerManager.togglePlayPause()
+    }
+
+    fun pauseMusic() {
+        MusicPlayerManager.pause()
+    }
+
+    fun resumeMusic() {
+        MusicPlayerManager.resume()
+    }
+
+    fun stopMusic() {
+        MusicPlayerManager.stop()
+        if (_playingAudioPath.value != null && _playingAudioPath.value == MusicPlayerManager.playerState.value.currentTrack?.filePath) {
+            _playingAudioPath.value = null
+        }
+    }
+
+    fun nextMusicTrack() {
+        MusicPlayerManager.next()
+    }
+
+    fun previousMusicTrack() {
+        MusicPlayerManager.previous()
+    }
+
+    fun seekMusicTo(positionMs: Long) {
+        MusicPlayerManager.seekTo(positionMs)
+    }
+
+    fun setMusicPlayerVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        MusicPlayerManager.setVolume(clamped)
+        prefsManager.updatePreferences(preferences.value.copy(musicPlayerVolume = clamped))
+    }
+
+    fun setMusicRepeatMode(mode: MusicRepeatMode) {
+        MusicPlayerManager.setRepeatMode(mode)
+        prefsManager.updatePreferences(preferences.value.copy(musicPlayerRepeatMode = mode.name))
+    }
+
+    fun cycleMusicRepeatMode(): MusicRepeatMode {
+        val nextMode = MusicPlayerManager.cycleRepeatMode()
+        prefsManager.updatePreferences(preferences.value.copy(musicPlayerRepeatMode = nextMode.name))
+        return nextMode
     }
 
     fun getVideoDurationSeconds(filePath: String?): Int {

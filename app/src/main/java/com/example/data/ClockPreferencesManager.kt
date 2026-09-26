@@ -85,7 +85,9 @@ class ClockPreferencesManager(context: Context) {
             fireAlertSoundEnabled = prefs.getBoolean("fire_alert_sound_enabled", true),
             fireAlertVibration = prefs.getBoolean("fire_alert_vibration", true),
             fireAlertVoiceTts = prefs.getBoolean("fire_alert_voice_tts", true),
-            mq2SensitivityThreshold = prefs.getInt("mq2_sensitivity_threshold", 900)
+            mq2SensitivityThreshold = prefs.getInt("mq2_sensitivity_threshold", 900),
+            musicPlayerVolume = prefs.getFloat("music_player_volume", 0.85f),
+            musicPlayerRepeatMode = prefs.getString("music_player_repeat_mode", "ALL") ?: "ALL"
         )
     }
 
@@ -122,6 +124,8 @@ class ClockPreferencesManager(context: Context) {
             .putBoolean("fire_alert_vibration", state.fireAlertVibration)
             .putBoolean("fire_alert_voice_tts", state.fireAlertVoiceTts)
             .putInt("mq2_sensitivity_threshold", state.mq2SensitivityThreshold)
+            .putFloat("music_player_volume", state.musicPlayerVolume)
+            .putString("music_player_repeat_mode", state.musicPlayerRepeatMode)
             .apply()
         _state.value = state
     }

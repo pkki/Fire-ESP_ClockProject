@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CameraFront
@@ -55,17 +56,25 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FlipCameraAndroid
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
@@ -74,13 +83,18 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.ViewCarousel
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeMute
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
@@ -96,11 +110,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import com.example.audio.MusicRepeatMode
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,11 +128,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import java.util.Locale
 import com.example.ClockViewModel
 import com.example.audio.ChimeSound
 import com.example.camera.IpCameraConfig
@@ -345,7 +364,8 @@ fun UnifiedSettingsDialog(
                             SettingsTab.MEDIA -> MediaManagementSettingsContent(
                                 customAudioList = customAudioList,
                                 customVideoList = customVideoList,
-                                viewModel = viewModel
+                                viewModel = viewModel,
+                                preferences = preferences
                             )
                             SettingsTab.WEATHER -> WeatherSettingsContent(
                                 preferences = preferences,
@@ -2729,13 +2749,16 @@ private fun EditScheduledChimeDialog(
 private fun MediaManagementSettingsContent(
     customAudioList: List<CustomAudioItem>,
     customVideoList: List<CustomVideoItem>,
-    viewModel: ClockViewModel
+    viewModel: ClockViewModel,
+    preferences: ClockPreferencesState
 ) {
     val context = LocalContext.current
     var renamingAudioItem by remember { mutableStateOf<CustomAudioItem?>(null) }
     var renamingVideoItem by remember { mutableStateOf<CustomVideoItem?>(null) }
     var renameText by remember { mutableStateOf("") }
     val playingAudioPath by viewModel.playingAudioPath.collectAsState()
+    val musicPlayerState by viewModel.musicPlayerState.collectAsState()
+    var showMusicPlayerDialog by remember { mutableStateOf(false) }
 
     // Audio file picker launcher
     val audioPickerLauncher = rememberLauncherForActivityResult(
@@ -2779,11 +2802,299 @@ private fun MediaManagementSettingsContent(
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    "端末内の音声・動画ファイルを取り込んで管理できます。各ファイルの名前変更（リネーム）、本体スピーカーでの直接テスト鳴動、背景動画の全画面プレビューがここから直接行えます。",
+                    "端末内の音声・動画ファイルを取り込んで管理できます。音楽プレイヤーでの連続鑑賞、音量設定、時報・アラームでのテスト鳴動、背景動画の全画面プレビューがここから直接行えます。",
                     fontSize = 11.sp,
                     color = Color(0xFFC0C0CC),
                     lineHeight = 16.sp
                 )
+            }
+        }
+
+        // Dedicated Music Player & Volume Control Card (User Requested Feature)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141926)),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF).copy(alpha = 0.35f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    // Header with title and "Open Full Player" button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF00E5FF).copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (musicPlayerState.isPlaying) Icons.Default.GraphicEq else Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "📻 卓上音楽プレイヤー",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "お気に入りの曲を高音質で連続再生 (テスト再生とは別に鑑賞可能)",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showMusicPlayerDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInFull, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("プレイヤー全画面", fontSize = 11.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Currently Playing Track info banner
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0D111A))
+                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = musicPlayerState.currentTrack?.name ?: if (customAudioList.isNotEmpty()) "楽曲を選んで音楽再生を開始" else "音楽ファイルが未登録です",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (musicPlayerState.currentTrack != null) Color.White else Color(0xFF888896),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = when {
+                                        musicPlayerState.isPlaying -> "▶ 連続再生中 • ${musicPlayerState.repeatMode.label}"
+                                        musicPlayerState.isPaused -> "⏸ 一時停止中"
+                                        else -> "⏹ 停止中"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = if (musicPlayerState.isPlaying) Color(0xFF00E5FF) else Color(0xFF9E9EA8),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+
+                            // Time display
+                            if (musicPlayerState.durationMs > 0) {
+                                Text(
+                                    text = "${musicPlayerState.positionFormatted} / ${musicPlayerState.durationFormatted}",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Progress / Seek bar
+                    var isSeekingLocal by remember { mutableStateOf(false) }
+                    var seekValLocal by remember { mutableFloatStateOf(0f) }
+                    val progressFraction = if (isSeekingLocal) seekValLocal else musicPlayerState.progressFraction
+
+                    Slider(
+                        value = progressFraction,
+                        onValueChange = {
+                            isSeekingLocal = true
+                            seekValLocal = it
+                        },
+                        onValueChangeFinished = {
+                            val targetMs = (seekValLocal * musicPlayerState.durationMs).toLong()
+                            viewModel.seekMusicTo(targetMs)
+                            isSeekingLocal = false
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF00E5FF),
+                            activeTrackColor = Color(0xFF00E5FF),
+                            inactiveTrackColor = Color(0x33FFFFFF)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(26.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Player Controls Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Repeat mode toggle
+                        OutlinedButton(
+                            onClick = { viewModel.cycleMusicRepeatMode() },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = when (musicPlayerState.repeatMode) {
+                                    MusicRepeatMode.ONE -> Icons.Default.RepeatOne
+                                    MusicRepeatMode.SHUFFLE -> Icons.Default.Shuffle
+                                    else -> Icons.Default.Repeat
+                                },
+                                contentDescription = null,
+                                tint = if (musicPlayerState.repeatMode != MusicRepeatMode.OFF) Color(0xFF00E5FF) else Color(0xFF888896),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = musicPlayerState.repeatMode.label,
+                                fontSize = 10.sp,
+                                color = if (musicPlayerState.repeatMode != MusicRepeatMode.OFF) Color(0xFF00E5FF) else Color(0xFF888896)
+                            )
+                        }
+
+                        // Playback buttons
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { viewModel.previousMusicTrack() },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.SkipPrevious, contentDescription = "前の曲", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (musicPlayerState.currentTrack == null && customAudioList.isNotEmpty()) {
+                                        viewModel.playMusic(customAudioList.first(), customAudioList)
+                                    } else {
+                                        viewModel.toggleMusicPlayPause()
+                                    }
+                                },
+                                shape = CircleShape,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                modifier = Modifier.size(40.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (musicPlayerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (musicPlayerState.isPlaying) "一時停止" else "再生",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.nextMusicTrack() },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.SkipNext, contentDescription = "次の曲", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+
+                            IconButton(
+                                onClick = { viewModel.stopMusic() },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Stop, contentDescription = "停止", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Dedicated Music Player Volume Slider (User Requested)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF0F131D))
+                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = when {
+                                        musicPlayerState.volume <= 0.01f -> Icons.Default.VolumeMute
+                                        musicPlayerState.volume < 0.5f -> Icons.Default.VolumeDown
+                                        else -> Icons.Default.VolumeUp
+                                    },
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "音楽プレイヤー音量 (独立ボリューム設定)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                            Text(
+                                text = "${(musicPlayerState.volume * 100).roundToInt()}%",
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF00E5FF)
+                            )
+                        }
+
+                        Slider(
+                            value = musicPlayerState.volume,
+                            onValueChange = { newVol ->
+                                viewModel.setMusicPlayerVolume(newVol)
+                            },
+                            valueRange = 0f..1f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF00E5FF),
+                                activeTrackColor = Color(0xFF00E5FF),
+                                inactiveTrackColor = Color(0x33FFFFFF)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(30.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -2826,7 +3137,7 @@ private fun MediaManagementSettingsContent(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("チャイム音源として使用できる音声 (MP3, WAV, OGG, AAC等)。リネームや直接テスト鳴動が可能です。", fontSize = 11.sp, color = Color(0xFF9E9EA8))
+                Text("音楽鑑賞用およびチャイム音源として使用できる音声 (MP3, WAV, OGG, AAC等)。リネーム・音楽プレイヤー再生・テスト鳴動が可能です。", fontSize = 11.sp, color = Color(0xFF9E9EA8))
                 Spacer(modifier = Modifier.height(10.dp))
 
                 if (customAudioList.isEmpty()) {
@@ -2846,16 +3157,21 @@ private fun MediaManagementSettingsContent(
                     }
                 } else {
                     customAudioList.forEach { audio ->
-                        val isPlaying = playingAudioPath == audio.filePath
+                        val isPlayingThisChime = playingAudioPath == audio.filePath && !musicPlayerState.isPlaying
+                        val isCurrentMusicTrack = musicPlayerState.currentTrack?.id == audio.id
+                        val isPlayingInMusic = isCurrentMusicTrack && musicPlayerState.isPlaying
+                        val isPausedInMusic = isCurrentMusicTrack && musicPlayerState.isPaused
+                        val isCardActive = isPlayingInMusic || isPlayingThisChime || isPausedInMusic
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isPlaying) Color(0x2A00E5FF) else Color(0x12FFFFFF))
+                                .background(if (isPlayingInMusic) Color(0x2E00E5FF) else if (isCardActive) Color(0x1F00E5FF) else Color(0x12FFFFFF))
                                 .border(
                                     width = 1.dp,
-                                    color = if (isPlaying) Color(0xFF00E5FF) else Color(0x1EFFFFFF),
+                                    color = if (isPlayingInMusic) Color(0xFF00E5FF) else if (isCardActive) Color(0x5500E5FF) else Color(0x1EFFFFFF),
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -2864,28 +3180,43 @@ private fun MediaManagementSettingsContent(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(audio.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                if (isPlaying) {
-                                    Text("▶ 端末スピーカーでテスト鳴動中...", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                if (isPlayingInMusic) {
+                                    Text("🎵 音楽プレイヤーで連続再生中 (${(musicPlayerState.volume * 100).roundToInt()}%)", color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                } else if (isPausedInMusic) {
+                                    Text("⏸ 音楽プレイヤー一時停止中", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                                } else if (isPlayingThisChime) {
+                                    Text("▶ 端末スピーカーでテスト鳴動中...", color = Color(0xFFFFB300), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Rename Button
-                                OutlinedButton(
-                                    onClick = {
-                                        renamingAudioItem = audio
-                                        renameText = audio.name
-                                    },
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("リネーム", fontSize = 10.sp, color = Color(0xFFCCCCCC))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // 1. Primary Music Player Play/Pause Button (User Requested: can now listen as full music player!)
+                                if (isPlayingInMusic) {
+                                    Button(
+                                        onClick = { viewModel.toggleMusicPlayPause() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                        modifier = Modifier.height(28.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Default.Pause, contentDescription = "一時停止", tint = Color.Black, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("一時停止", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { viewModel.playMusic(audio, customAudioList) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                                        modifier = Modifier.height(28.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "音楽再生", tint = Color(0xFF00E5FF), modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("音楽再生", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
 
-                                // Test Play / Stop toggle
-                                if (isPlaying) {
+                                // 2. Secondary Test Chime Button
+                                if (isPlayingThisChime) {
                                     Button(
                                         onClick = { viewModel.stopAudioPlayback() },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
@@ -2897,19 +3228,26 @@ private fun MediaManagementSettingsContent(
                                         Text("停止", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
                                     }
                                 } else {
-                                    Button(
+                                    OutlinedButton(
                                         onClick = { viewModel.testPlayCustomAudio(audio.filePath) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
                                         modifier = Modifier.height(28.dp),
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                     ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = "直接テスト鳴動", tint = Color(0xFF00E5FF), modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text("テスト鳴動", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                                        Text("テスト鳴動", fontSize = 10.sp, color = Color(0xFFB0B0C0))
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
+
+                                // Rename Button
+                                OutlinedButton(
+                                    onClick = {
+                                        renamingAudioItem = audio
+                                        renameText = audio.name
+                                    },
+                                    modifier = Modifier.height(28.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(13.dp))
+                                }
 
                                 // Delete
                                 IconButton(onClick = { viewModel.deleteCustomAudio(audio) }, modifier = Modifier.size(28.dp)) {
@@ -3181,6 +3519,14 @@ private fun MediaManagementSettingsContent(
                 }
             },
             containerColor = Color(0xFF1E1E28)
+        )
+    }
+
+    if (showMusicPlayerDialog) {
+        MusicPlayerDialog(
+            viewModel = viewModel,
+            preferences = preferences,
+            onDismiss = { showMusicPlayerDialog = false }
         )
     }
 }
@@ -3708,6 +4054,10 @@ private fun DiagnosticsSettingsContent(
     val preferences by viewModel.preferences.collectAsState()
     var updateStatusMessage by remember { mutableStateOf<String?>(null) }
     var isUpdating by remember { mutableStateOf(false) }
+    var espOtaPercent by remember { mutableStateOf(0) }
+    var espOtaSpeedKbps by remember { mutableStateOf(0f) }
+    var espOtaWrittenBytes by remember { mutableStateOf(0) }
+    var espOtaTotalBytes by remember { mutableStateOf(0) }
 
     val apkPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -3724,12 +4074,23 @@ private fun DiagnosticsSettingsContent(
     ) { uri: Uri? ->
         if (uri != null) {
             isUpdating = true
-            updateStatusMessage = "ESPファームウェア(.bin)をOTA転送中..."
+            espOtaPercent = 0
+            espOtaSpeedKbps = 0f
+            espOtaWrittenBytes = 0
+            espOtaTotalBytes = 0
+            updateStatusMessage = "ESPファームウェア(.bin)をOTA書き込み準備中..."
             coroutineScope.launch {
                 val (success, message) = viewModel.flashEspFirmwareFromUri(
                     uri = uri,
                     host = preferences.espSensorHost.ifBlank { null },
-                    port = preferences.espSensorPort
+                    port = preferences.espSensorPort,
+                    onProgress = { percent, written, total, speed, status ->
+                        espOtaPercent = percent
+                        espOtaWrittenBytes = written
+                        espOtaTotalBytes = total
+                        espOtaSpeedKbps = speed
+                        updateStatusMessage = status
+                    }
                 )
                 isUpdating = false
                 updateStatusMessage = message
@@ -3895,38 +4256,85 @@ private fun DiagnosticsSettingsContent(
                             espBinPickerLauncher.launch("*/*")
                         },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("ESPファームウェアOTA (.bin)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Icon(
+                            imageVector = Icons.Default.Bluetooth,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("ESP32 .bin更新 (BLE/OTA)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "※ ESP32とBluetooth接続中は、Wi-FiやUSBケーブル不要でBluetooth (BLE) 経由で直接ファームウェアをフラッシュ書き込みします。Wi-Fi設定時はWi-Fi OTAでも更新可能。",
+                    fontSize = 10.5.sp,
+                    color = Color(0xFF94A3B8),
+                    lineHeight = 15.sp
+                )
 
                 // Status message display
                 if (isUpdating || updateStatusMessage != null) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color(0x33000000))
                             .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
-                        if (isUpdating) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = Color(0xFF38BDF8),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isUpdating) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color(0xFF38BDF8),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = updateStatusMessage ?: "処理中...",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFF1F5F9)
+                                )
+                            }
+                            if (isUpdating && espOtaTotalBytes > 0) {
+                                Text(
+                                    text = "$espOtaPercent% (${String.format(Locale.US, "%.1f", espOtaSpeedKbps)} KB/s)",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
                         }
-                        Text(
-                            text = updateStatusMessage ?: "処理中...",
-                            fontSize = 11.sp,
-                            color = Color(0xFFF1F5F9)
-                        )
+
+                        if (isUpdating && espOtaTotalBytes > 0) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LinearProgressIndicator(
+                                progress = { espOtaPercent / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color(0xFF38BDF8),
+                                trackColor = Color(0x3338BDF8)
+                            )
+                        }
                     }
                 }
             }

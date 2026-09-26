@@ -26,8 +26,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -52,8 +55,7 @@ fun EspSensorBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RectangleShape)
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
@@ -62,19 +64,23 @@ fun EspSensorBottomBar(
                     )
                 )
             )
-            .border(
-                width = 1.2.dp,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        accentColor.copy(alpha = 0.4f),
-                        Color(0x22FFFFFF),
-                        accentColor.copy(alpha = 0.25f)
-                    )
-                ),
-                shape = RoundedCornerShape(22.dp)
-            )
+            .drawBehind {
+                val strokeWidth = 1.2.dp.toPx()
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = 0.55f),
+                            Color(0x33FFFFFF),
+                            accentColor.copy(alpha = 0.4f)
+                        )
+                    ),
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, 0f),
+                    strokeWidth = strokeWidth
+                )
+            }
             .clickable { onOpenSettings() }
-            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .padding(horizontal = 24.dp, vertical = 10.dp)
             .testTag("esp_sensor_bottom_bar")
     ) {
         if (isConnected && hasReadings) {

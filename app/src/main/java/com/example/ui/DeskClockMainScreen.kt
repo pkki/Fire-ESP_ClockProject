@@ -74,6 +74,8 @@ import com.example.ui.components.EewFullScreenOverlay
 import com.example.ui.components.EspSensorBottomBar
 import com.example.ui.components.FireAlertOverlay
 import com.example.ui.components.IrQuickControlsSheet
+import com.example.ui.components.MediaPlaybackHudBanner
+import com.example.ui.components.MusicPlayerDialog
 import com.example.ui.components.PhysicalButtonHudBanner
 import com.example.ui.components.SettingsTab
 import com.example.ui.components.TopControlBar
@@ -101,6 +103,9 @@ fun DeskClockMainScreen(
     val customAudioList by viewModel.customAudioList.collectAsState()
     val customVideoList by viewModel.customVideoList.collectAsState()
     val activeBackgroundVideo by viewModel.activeBackgroundVideo.collectAsState()
+    val playingAudioPath by viewModel.playingAudioPath.collectAsState()
+    val musicPlayerState by viewModel.musicPlayerState.collectAsState()
+    var showMusicPlayerDialog by remember { mutableStateOf(false) }
 
     // IP Camera states
     val ipCameraConfig by viewModel.ipCameraConfig.collectAsState()
@@ -357,11 +362,13 @@ fun DeskClockMainScreen(
                     ipCameraStatus = ipCameraStatus,
                     timerSeconds = timerState.remainingSeconds,
                     isEspConnected = espSensorData.isConnected,
+                    isMusicPlaying = musicPlayerState.isPlaying,
                     onOpenSettings = { tab ->
                         currentSettingsTab = tab
                         showSettingsDialog = true
                     },
                     onOpenTimer = { showTimerDialog = true },
+                    onOpenMusicPlayer = { showMusicPlayerDialog = true },
                     onOpenIrRemote = { showIrQuickSheet = true },
                     onToggleNightMode = {
                         val willBeNight = !preferences.isNightMode
@@ -442,23 +449,38 @@ fun DeskClockMainScreen(
             }
         }
 
-        // 4. Bottom Large Sensor Display (Clean, prominent environmental data)
-        if (preferences.showEspSensorOnClock && !preferences.isNightMode) {
-            EspSensorBottomBar(
-                sensorData = espSensorData,
-                host = preferences.espSensorHost,
+        // 4. Bottom Section: Media Playback Banner + Large Sensor Display
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Media Playback HUD Banner (Displayed right above the sensor bar / humidity area)
+            MediaPlaybackHudBanner(
+                activeVideo = activeBackgroundVideo,
+                playingAudioPath = playingAudioPath,
+                customAudioList = customAudioList,
                 accentColor = preferences.colorPalette.primary,
-                onOpenSettings = {
-                    currentSettingsTab = SettingsTab.ESP_SENSOR
-                    showSettingsDialog = true
-                },
-                onRetryConnection = {
-                    viewModel.retryEspSensorConnection()
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 6.dp)
+                onDismissVideo = { viewModel.dismissBackgroundVideo() },
+                onDismissAudio = { viewModel.stopAudioPlayback() },
+                onOpenMusicPlayer = { showMusicPlayerDialog = true }
             )
+
+            if (preferences.showEspSensorOnClock && !preferences.isNightMode) {
+                EspSensorBottomBar(
+                    sensorData = espSensorData,
+                    host = preferences.espSensorHost,
+                    accentColor = preferences.colorPalette.primary,
+                    onOpenSettings = {
+                        currentSettingsTab = SettingsTab.ESP_SENSOR
+                        showSettingsDialog = true
+                    },
+                    onRetryConnection = {
+                        viewModel.retryEspSensorConnection()
+                    }
+                )
+            }
         }
 
         // 5. Kiosk warning toast / banner
@@ -554,6 +576,18 @@ fun DeskClockMainScreen(
                 },
                 onDismiss = {
                     showIrQuickSheet = false
+                    onUserInteraction()
+                }
+            )
+        }
+
+        // 8.5 Dedicated Music Player Dialog
+        if (showMusicPlayerDialog) {
+            MusicPlayerDialog(
+                viewModel = viewModel,
+                preferences = preferences,
+                onDismiss = {
+                    showMusicPlayerDialog = false
                     onUserInteraction()
                 }
             )

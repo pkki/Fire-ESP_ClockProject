@@ -385,6 +385,31 @@ class EspSensorManager(private val context: Context) {
     }
 
     /**
+     * ESP32 / ESP8266 へファームウェア(.bin)をOTA書き込み
+     * BLE接続時はBluetooth経由 (BLE OTA)、Wi-Fi設定時はHTTP経由 (Wi-Fi OTA) を自動選択
+     * @return エラーメッセージ（空文字列なら成功）
+     */
+    suspend fun flashEspFirmware(
+        fileName: String,
+        binBytes: ByteArray,
+        targetHost: String? = null,
+        targetPort: Int? = null,
+        onProgress: ((percent: Int, writtenBytes: Int, totalBytes: Int, speedKbps: Float, statusMsg: String) -> Unit)? = null
+    ): String = withContext(Dispatchers.IO) {
+        if (bleSensorManager.isConnected) {
+            Log.i("EspSensorManager", "Flashing ESP32-C3 firmware via Bluetooth BLE OTA (${binBytes.size} bytes)...")
+            return@withContext bleSensorManager.flashFirmwareBle(binBytes, onProgress)
+        }
+
+        onProgress?.invoke(0, 0, binBytes.size, 0f, "Wi-Fi経由でESPへアップロード中...")
+        val res = flashEspOta(fileName, binBytes, targetHost, targetPort)
+        if (res.isEmpty()) {
+            onProgress?.invoke(100, binBytes.size, binBytes.size, 0f, "ファームウェア更新完了！ESPが再起動しました")
+        }
+        res
+    }
+
+    /**
      * ESP8266 / ESP32 へWi-Fi経由でファームウェアバイナリ(.bin)をOTAアップデート
      * @return エラーメッセージ（空文字列なら成功）
      */

@@ -1,5 +1,12 @@
 package com.example.ui.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeviceThermostat
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Refresh
@@ -30,7 +40,9 @@ import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -41,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ClockViewModel
 import com.example.model.ClockPreferencesState
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 @Composable
@@ -62,7 +76,45 @@ fun EspSensorSettingsContent(
     preferences: ClockPreferencesState
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val sensorData by viewModel.espSensorData.collectAsState()
+
+    var isFlashingOta by remember { mutableStateOf(false) }
+    var otaStatusMessage by remember { mutableStateOf<String?>(null) }
+    var otaPercent by remember { mutableStateOf(0) }
+    var otaSpeedKbps by remember { mutableStateOf(0f) }
+    var otaWrittenBytes by remember { mutableStateOf(0) }
+    var otaTotalBytes by remember { mutableStateOf(0) }
+
+    val espBinPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isFlashingOta = true
+            otaPercent = 0
+            otaSpeedKbps = 0f
+            otaWrittenBytes = 0
+            otaTotalBytes = 0
+            otaStatusMessage = "ESP32ファームウェア(.bin)をOTA書き込み準備中..."
+            coroutineScope.launch {
+                val (success, msg) = viewModel.flashEspFirmwareFromUri(
+                    uri = uri,
+                    host = preferences.espSensorHost.ifBlank { null },
+                    port = preferences.espSensorPort,
+                    onProgress = { percent, written, total, speed, status ->
+                        otaPercent = percent
+                        otaWrittenBytes = written
+                        otaTotalBytes = total
+                        otaSpeedKbps = speed
+                        otaStatusMessage = status
+                    }
+                )
+                isFlashingOta = false
+                otaStatusMessage = msg
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     val currentMode = preferences.espConnectionMode // "BLE", "USB", "WIFI"
     val isBleMode = currentMode == "BLE"
@@ -950,6 +1002,173 @@ fun EspSensorSettingsContent(
                         ),
                         singleLine = true
                     )
+                }
+            }
+        }
+
+        // 7. ESP32-C3 Firmware Wireless Update (Bluetooth BLE OTA / Wi-Fi OTA)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF1B1E2B))
+                    .border(1.dp, Color(0x3338BDF8), RoundedCornerShape(14.dp))
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = Color(0xFF38BDF8),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "ESP32 ファームウェア無線更新 (BLE OTA)",
+                            color = Color.White,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (sensorData.isConnected) Color(0x2810B981) else Color(0x28EF4444))
+                            .border(1.dp, if (sensorData.isConnected) Color(0xFF10B981) else Color(0xFFEF4444), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = if (sensorData.isConnected) "Bluetooth接続中 (書き込み可能)" else "未接続",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (sensorData.isConnected) Color(0xFF4ADE80) else Color(0xFFFF8A80)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Arduino IDE（スケッチ → コンパイル済みバイナリをエクスポート）やPlatformIOで出力された .bin ファイルを選択するだけで、Bluetooth (BLE) 経由でESP32へ直接ファームウェアをフラッシュ書き込みします。",
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { espBinPicker.launch("*/*") },
+                        enabled = !isFlashingOta,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isFlashingOta) "書き込み中..." else "ファームウェア(.bin)を選択して更新",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val sketch = viewModel.getArduinoSketchCode()
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            cm?.setPrimaryClip(ClipData.newPlainText("ESP32-C3 Sketch", sketch))
+                            Toast.makeText(context, "最新スケッチコードをクリップボードにコピーしました", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x3338BDF8)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = Color(0xFF38BDF8)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("スケッチコピー", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                    }
+                }
+
+                if (isFlashingOta || otaStatusMessage != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0x33000000))
+                            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isFlashingOta) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color(0xFF38BDF8),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = otaStatusMessage ?: "処理中...",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFF1F5F9)
+                                )
+                            }
+                            if (isFlashingOta && otaTotalBytes > 0) {
+                                Text(
+                                    text = "$otaPercent% (${String.format(Locale.US, "%.1f", otaSpeedKbps)} KB/s)",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF38BDF8)
+                                )
+                            }
+                        }
+
+                        if (isFlashingOta && otaTotalBytes > 0) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LinearProgressIndicator(
+                                progress = { otaPercent / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color(0xFF38BDF8),
+                                trackColor = Color(0x3338BDF8)
+                            )
+                        }
+                    }
                 }
             }
         }

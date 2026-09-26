@@ -16,9 +16,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Videocam
@@ -48,8 +50,10 @@ fun TopControlBar(
     ipCameraStatus: IpCameraStatus,
     timerSeconds: Int,
     isEspConnected: Boolean,
+    isMusicPlaying: Boolean = false,
     onOpenSettings: (SettingsTab) -> Unit,
     onOpenTimer: () -> Unit,
+    onOpenMusicPlayer: () -> Unit = {},
     onOpenIrRemote: () -> Unit = {},
     onToggleNightMode: () -> Unit,
     onToggleKioskLock: () -> Unit,
@@ -135,6 +139,20 @@ fun TopControlBar(
             onClick = {
                 onUserInteraction()
                 onOpenIrRemote()
+            }
+        )
+
+        // 4.6 Music Player Shortcut
+        TopActionButton(
+            icon = if (isMusicPlaying) Icons.Default.GraphicEq else Icons.Default.MusicNote,
+            label = if (isMusicPlaying) "音楽再生中" else "音楽",
+            testTag = "btn_top_music_player",
+            tint = if (isMusicPlaying) preferences.colorPalette.primary else Color(0xFF94A3B8),
+            showIndicator = isMusicPlaying,
+            indicatorColor = preferences.colorPalette.primary,
+            onClick = {
+                onUserInteraction()
+                onOpenMusicPlayer()
             }
         )
 

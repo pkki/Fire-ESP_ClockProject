@@ -25,6 +25,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -81,6 +82,8 @@ class BleSensorManager(
     var onFireAlertReceived: ((detected: Boolean, mq2Raw: Int?, msg: String?) -> Unit)? = null
     var onMq2DataReceived: ((rawVal: Int?, voltage: Float?, smokeDetected: Boolean) -> Unit)? = null
     var onNtcDataReceived: ((temperatures: List<Float?>, rawValues: List<Int?>, ready: Boolean) -> Unit)? = null
+    var onOtaProgress: ((percent: Int, writtenBytes: Int, totalBytes: Int, speedKbps: Float, statusMsg: String) -> Unit)? = null
+    var onOtaStatus: ((status: String, message: String) -> Unit)? = null
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var autoReconnectJob: Job? = null
@@ -550,6 +553,156 @@ class BleSensorManager(
         return sendCommand("{\"cmd\":\"read_sensor\"}")
     }
 
+    /**
+     * ESP32-C3 へ Bluetooth Low Energy (BLE OTA) 経由でファームウェアバイナリ(.bin)を直接書き込み
+     * @return エラーメッセージ (空文字なら成功)
+     */
+    suspend fun flashFirmwareBle(
+        binBytes: ByteArray,
+        onProgress: ((percent: Int, writtenBytes: Int, totalBytes: Int, speedKbps: Float, statusMsg: String) -> Unit)? = null
+    ): String = withContext(Dispatchers.IO) {
+        val gatt = bluetoothGatt
+        val writeChar = writeCharacteristic
+        if (!isConnectedInternal || gatt == null || writeChar == null) {
+            return@withContext "BLE未接続: ESP32-C3とBluetooth接続されていることを確認してください"
+        }
+        if (binBytes.isEmpty()) {
+            return@withContext "ファームウェアデータが空です"
+        }
+
+        try {
+            // MTU 517 を要求して高速転送を有効化
+            try {
+                gatt.requestMtu(517)
+                delay(200)
+            } catch (_: Exception) {}
+
+            var isReady = false
+            var isSuccess = false
+            var isAborted = false
+            var errorMsg = ""
+
+            val prevOtaStatus = onOtaStatus
+            onOtaStatus = { status, msg ->
+                Log.i(TAG, "BLE OTA Status update: $status ($msg)")
+                if (status == "ready") {
+                    isReady = true
+                } else if (status == "success") {
+                    isSuccess = true
+                } else if (status == "error" || status == "aborted") {
+                    isAborted = true
+                    errorMsg = msg
+                }
+            }
+
+            // 1. OTA開始要求コマンドを送信
+            onProgress?.invoke(0, 0, binBytes.size, 0f, "ESP32へBLE OTA開始要求を送信中...")
+            val startCmd = "{\"cmd\":\"ota_start\",\"size\":${binBytes.size}}\n"
+            sendCommand(startCmd)
+
+            // ESP32からの準備完了(ready)応答を待機 (最大5秒)
+            val startWait = System.currentTimeMillis()
+            while (!isReady && !isAborted && System.currentTimeMillis() - startWait < 5000) {
+                delay(100)
+            }
+
+            if (isAborted) {
+                onOtaStatus = prevOtaStatus
+                return@withContext "ESP32 OTA初期化エラー: $errorMsg"
+            }
+
+            // 2. ファームウェアバイナリをBLEチャンク分割で連続転送
+            val chunkSize = 240
+            val totalBytes = binBytes.size
+            var offset = 0
+            val startTime = System.currentTimeMillis()
+            var lastProgressTime = startTime
+
+            onProgress?.invoke(0, 0, totalBytes, 0f, "ファームウェア書き込み中...")
+
+            while (offset < totalBytes) {
+                if (!isConnectedInternal) {
+                    onOtaStatus = prevOtaStatus
+                    return@withContext "転送中にBLE接続が切断されました"
+                }
+
+                val currentChunkSize = minOf(chunkSize, totalBytes - offset)
+                val chunk = ByteArray(currentChunkSize)
+                System.arraycopy(binBytes, offset, chunk, 0, currentChunkSize)
+
+                val success = writeRawBytes(gatt, writeChar, chunk)
+                if (!success) {
+                    delay(25)
+                    writeRawBytes(gatt, writeChar, chunk)
+                }
+
+                offset += currentChunkSize
+                val now = System.currentTimeMillis()
+
+                if (now - lastProgressTime >= 150 || offset >= totalBytes) {
+                    lastProgressTime = now
+                    val elapsedSec = (now - startTime) / 1000f
+                    val speedKbps = if (elapsedSec > 0.05f) (offset / 1024f) / elapsedSec else 0f
+                    val percent = ((offset.toFloat() / totalBytes.toFloat()) * 100).toInt().coerceIn(0, 99)
+                    onProgress?.invoke(percent, offset, totalBytes, speedKbps, "ESP32へ転送・フラッシュ書込中 ($percent%)...")
+                }
+
+                // ESP32フラッシュ書き込みのバッファオーバーラン防止用微小ウェイト
+                delay(12)
+            }
+
+            // 3. OTA完了・終了コマンドを送信
+            onProgress?.invoke(99, totalBytes, totalBytes, 0f, "書き込み完了を検証中...")
+            val endCmd = "{\"cmd\":\"ota_end\"}\n"
+            sendCommand(endCmd)
+
+            // ESP32の書き込み検証および再起動応答を待機 (最大7秒)
+            val endWait = System.currentTimeMillis()
+            while (!isSuccess && !isAborted && System.currentTimeMillis() - endWait < 7000) {
+                delay(200)
+            }
+
+            onOtaStatus = prevOtaStatus
+
+            if (isAborted) {
+                return@withContext "ESP32書き込み検証エラー: $errorMsg"
+            }
+
+            onProgress?.invoke(100, totalBytes, totalBytes, 0f, "ファームウェア更新完了！ESP32が再起動しました")
+            "" // 成功
+        } catch (e: Exception) {
+            Log.e(TAG, "BLE OTA exception", e)
+            "BLE OTA通信エラー: ${e.localizedMessage ?: e.message}"
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun writeRawBytes(
+        gatt: BluetoothGatt,
+        writeChar: BluetoothGattCharacteristic,
+        bytes: ByteArray
+    ): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val writeType = if ((writeChar.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+                    BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                } else {
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                }
+                val res = gatt.writeCharacteristic(writeChar, bytes, writeType)
+                res == 0 // BluetoothStatusCodes.SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                writeChar.value = bytes
+                @Suppress("DEPRECATION")
+                gatt.writeCharacteristic(writeChar)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing raw BLE bytes", e)
+            false
+        }
+    }
+
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
         try {
@@ -699,6 +852,27 @@ class BleSensorManager(
             // 2. Try standard JSON status, button event or sensor messages
             val jsonObj = IrParserHelper.tryRepairAndParseJson(line)
             if (jsonObj != null) {
+                // BLE OTA Status & Progress
+                if (jsonObj.optString("type") == "ota_status") {
+                    val status = jsonObj.optString("status", "")
+                    val msg = jsonObj.optString("msg", jsonObj.optString("message", ""))
+                    Log.i(TAG, "BLE OTA Status: $status ($msg)")
+                    mainHandler.post {
+                        onOtaStatus?.invoke(status, msg)
+                    }
+                    return
+                }
+
+                if (jsonObj.optString("type") == "ota_progress") {
+                    val percent = jsonObj.optInt("percent", 0)
+                    val written = jsonObj.optInt("written", 0)
+                    val total = jsonObj.optInt("total", 0)
+                    mainHandler.post {
+                        onOtaProgress?.invoke(percent, written, total, 0f, "ESP32転送中 ($percent%)...")
+                    }
+                    return
+                }
+
                 // Physical Button Event (PCF8574P) - Ultra Low Latency
                 if (jsonObj.optString("type") == "btn") {
                     val btnId = jsonObj.optInt("id", 0)

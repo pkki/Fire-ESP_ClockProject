@@ -95,7 +95,14 @@ class IpCameraServer(
     ) -> Unit = { _, _, _, _, _, _, _, _, _, _, _ -> },
     private val onUpdateApk: (name: String, data: ByteArray) -> Pair<Boolean, String> = { _, _ -> Pair(false, "未対応") },
     private val onDownloadAndInstallApk: suspend (url: String) -> Pair<Boolean, String> = { _ -> Pair(false, "未対応") },
-    private val onEspOtaUpdate: suspend (name: String, data: ByteArray, host: String?, port: Int?) -> String = { _, _, _, _ -> "未対応" }
+    private val onEspOtaUpdate: suspend (name: String, data: ByteArray, host: String?, port: Int?) -> String = { _, _, _, _ -> "未対応" },
+    private val musicPlayerStateProvider: () -> com.example.audio.MusicPlayerState = { com.example.audio.MusicPlayerManager.playerState.value },
+    private val onPlayMusic: (com.example.model.CustomAudioItem) -> Unit = { com.example.audio.MusicPlayerManager.playTrack(it) },
+    private val onToggleMusic: () -> Unit = { com.example.audio.MusicPlayerManager.togglePlayPause() },
+    private val onNextMusic: () -> Unit = { com.example.audio.MusicPlayerManager.next() },
+    private val onPrevMusic: () -> Unit = { com.example.audio.MusicPlayerManager.previous() },
+    private val onStopMusic: () -> Unit = { com.example.audio.MusicPlayerManager.stop() },
+    private val onSetMusicVolume: (Float) -> Unit = { com.example.audio.MusicPlayerManager.setVolume(it) }
 ) {
     companion object {
         private const val TAG = "IpCameraServer"
@@ -745,6 +752,51 @@ class IpCameraServer(
                 method == "POST" && path == "/api/video/dismiss" -> {
                     onDismissVideo()
                     onStopAudio()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                // API: Music Player Controls (User Requested)
+                method == "POST" && path == "/api/music/play" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val id = obj.optString("id")
+                    val filePath = obj.optString("filePath")
+                    val audios = customAudioProvider()
+                    val target = audios.find { (id.isNotEmpty() && it.id == id) || (filePath.isNotEmpty() && it.filePath == filePath) }
+                        ?: audios.firstOrNull()
+                    if (target != null) {
+                        onPlayMusic(target)
+                    }
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/toggle" -> {
+                    onToggleMusic()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/next" -> {
+                    onNextMusic()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/prev" -> {
+                    onPrevMusic()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/stop" -> {
+                    onStopMusic()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/volume" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val vol = obj.optDouble("volume", 0.85).toFloat().coerceIn(0f, 1f)
+                    onSetMusicVolume(vol)
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
@@ -1431,6 +1483,22 @@ class IpCameraServer(
         }
         root.put("diagnostics", diagObj)
 
+        val mpState = musicPlayerStateProvider()
+        val mpObj = JSONObject().apply {
+            put("isPlaying", mpState.isPlaying)
+            put("isPaused", mpState.isPaused)
+            put("currentTrackName", mpState.currentTrack?.name ?: "")
+            put("currentTrackId", mpState.currentTrack?.id ?: "")
+            put("currentPositionMs", mpState.currentPositionMs)
+            put("durationMs", mpState.durationMs)
+            put("positionFormatted", mpState.positionFormatted)
+            put("durationFormatted", mpState.durationFormatted)
+            put("volume", mpState.volume)
+            put("repeatMode", mpState.repeatMode.name)
+            put("repeatModeLabel", mpState.repeatMode.label)
+        }
+        root.put("musicPlayer", mpObj)
+
         // IR Buttons List
         val irArr = JSONArray()
         irButtonsProvider().forEach { b ->
@@ -1549,52 +1617,57 @@ class IpCameraServer(
             --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
-        body { background: var(--bg-color); color: var(--text-main); min-height: 100vh; display: flex; flex-direction: column; }
+        html, body { background: var(--bg-color); color: var(--text-main); min-height: 100vh; width: 100%; max-width: 100vw; overflow-x: hidden; display: flex; flex-direction: column; }
         
-        /* Tailscale-styled Header */
+        /* Tailscale-styled Responsive Header */
         header { 
             background: var(--surface); 
             border-bottom: 1px solid var(--border-color); 
-            padding: 12px 24px; 
+            padding: 12px 20px; 
             display: flex; 
             align-items: center; 
             justify-content: space-between; 
             position: sticky; 
             top: 0; 
             z-index: 100; 
+            width: 100%;
+            max-width: 100vw;
+            box-sizing: border-box;
+            gap: 12px;
         }
-        .logo-wrap { display: flex; align-items: center; gap: 12px; }
-        .tailscale-grid-icon { width: 24px; height: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; align-items: center; justify-items: center; }
-        .tailscale-grid-icon span { width: 5px; height: 5px; background: #fff; border-radius: 50%; opacity: 0.9; }
+        .logo-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex-shrink: 1; }
+        .tailscale-grid-icon { width: 22px; height: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5px; align-items: center; justify-items: center; flex-shrink: 0; }
+        .tailscale-grid-icon span { width: 4.5px; height: 4.5px; background: #fff; border-radius: 50%; opacity: 0.9; }
         .tailscale-grid-icon span:nth-child(2), .tailscale-grid-icon span:nth-child(4), .tailscale-grid-icon span:nth-child(8) { background: var(--primary); opacity: 1; }
-        .logo-text { font-size: 0.95rem; font-weight: 600; color: #fff; letter-spacing: -0.2px; }
-        .node-tag { font-size: 0.75rem; color: var(--text-muted); background: var(--surface-subtle); padding: 2px 8px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-family: var(--font-mono); }
+        .logo-text { font-size: 0.95rem; font-weight: 600; color: #fff; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .node-tag { font-size: 0.72rem; color: var(--text-muted); background: var(--surface-subtle); padding: 2px 7px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-family: var(--font-mono); white-space: nowrap; flex-shrink: 0; }
         
-        .header-meta { display: flex; align-items: center; gap: 16px; }
-        .status-pill { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 500; color: var(--success); background: var(--success-subtle); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(16, 185, 129, 0.2); }
-        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
-        .clock-display { font-family: var(--font-mono); font-size: 0.88rem; color: var(--text-muted); }
+        .header-meta { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+        .status-pill { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; font-weight: 500; color: var(--success); background: var(--success-subtle); padding: 4px 9px; border-radius: 20px; border: 1px solid rgba(16, 185, 129, 0.2); white-space: nowrap; }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+        .clock-display { font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
 
         /* Tailscale Nav Tabs */
-        .nav-tabs-container { background: var(--surface); border-bottom: 1px solid var(--border-color); padding: 0 24px; }
-        .nav-tabs { display: flex; gap: 24px; overflow-x: auto; scrollbar-width: none; }
+        .nav-tabs-container { background: var(--surface); border-bottom: 1px solid var(--border-color); padding: 0 16px; width: 100%; max-width: 100vw; box-sizing: border-box; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .nav-tabs { display: flex; gap: 20px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
         .nav-tabs::-webkit-scrollbar { display: none; }
         .tab-btn { 
             background: transparent; 
             border: none; 
             border-bottom: 2px solid transparent; 
             color: var(--text-muted); 
-            font-size: 0.88rem; 
+            font-size: 0.86rem; 
             font-weight: 500; 
-            padding: 12px 2px; 
+            padding: 11px 2px; 
             cursor: pointer; 
             transition: all 0.15s ease; 
             white-space: nowrap; 
             display: flex; 
             align-items: center; 
-            gap: 8px; 
+            gap: 7px; 
+            flex-shrink: 0;
         }
-        .tab-btn svg { width: 16px; height: 16px; stroke-width: 2; opacity: 0.7; }
+        .tab-btn svg { width: 15px; height: 15px; stroke-width: 2; opacity: 0.7; flex-shrink: 0; }
         .tab-btn:hover { color: var(--text-main); }
         .tab-btn:hover svg { opacity: 1; }
         .tab-btn.active { 
@@ -1604,7 +1677,7 @@ class IpCameraServer(
         }
         .tab-btn.active svg { opacity: 1; stroke: var(--primary); }
 
-        main { flex: 1; padding: 24px; max-width: 1160px; margin: 0 auto; width: 100%; }
+        main { flex: 1; padding: 20px 16px; max-width: 1160px; margin: 0 auto; width: 100%; box-sizing: border-box; }
         .tab-content { display: none; }
         .tab-content.active { display: block; animation: fadeIn 0.15s ease; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1842,6 +1915,94 @@ class IpCameraServer(
             0% { opacity: 0.8; }
             50% { opacity: 1; filter: brightness(1.2); }
             100% { opacity: 0.8; }
+        }
+
+        /* Mobile and Tablet Responsiveness */
+        @media (max-width: 768px) {
+            header {
+                padding: 10px 12px;
+                gap: 8px;
+            }
+            .logo-text {
+                font-size: 0.88rem;
+            }
+            .node-tag {
+                display: none;
+            }
+            .clock-display {
+                font-size: 0.76rem;
+            }
+            .status-pill {
+                padding: 3px 7px;
+                font-size: 0.72rem;
+            }
+            .nav-tabs-container {
+                padding: 0 10px;
+            }
+            .nav-tabs {
+                gap: 14px;
+            }
+            .tab-btn {
+                font-size: 0.82rem;
+                padding: 10px 2px;
+                gap: 5px;
+            }
+            main {
+                padding: 14px 10px;
+            }
+            .card {
+                padding: 14px 14px;
+                margin-bottom: 14px;
+            }
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+            .upload-dropzone {
+                padding: 18px 10px;
+            }
+            #globalUploadProgress {
+                width: calc(100vw - 24px) !important;
+                left: 12px !important;
+                right: 12px !important;
+                bottom: 12px !important;
+                box-sizing: border-box !important;
+            }
+        }
+
+        @media (max-width: 480px) {
+            header {
+                padding: 8px 10px;
+                gap: 6px;
+            }
+            .logo-wrap {
+                gap: 6px;
+            }
+            .tailscale-grid-icon {
+                width: 18px;
+                height: 18px;
+                gap: 2px;
+            }
+            .tailscale-grid-icon span {
+                width: 4px;
+                height: 4px;
+            }
+            .logo-text {
+                font-size: 0.82rem;
+            }
+            .clock-display {
+                display: none;
+            }
+            .header-meta {
+                gap: 6px;
+            }
+            .status-pill {
+                padding: 2px 6px;
+                font-size: 0.7rem;
+            }
+            .btn-sm {
+                padding: 4px 7px;
+                font-size: 0.72rem;
+            }
         }
 
         ${WebDashboardIrEsp.getIrEspCss()}
@@ -2202,6 +2363,30 @@ class IpCameraServer(
                         </div>
                     </div>
                     <div style="margin-top: 16px;">
+                        <!-- Web Music Player & Dedicated Volume Control -->
+                        <div style="background:var(--surface-subtle); border:1px solid rgba(0,229,255,0.3); border-radius:var(--radius-md); padding:12px; margin-bottom:14px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:1.2rem;">📻</span>
+                                    <div>
+                                        <div style="font-size:0.88rem; font-weight:700; color:#fff;" id="webMpTrackName">Music Player: Idle</div>
+                                        <div style="font-size:0.75rem; color:var(--text-muted);" id="webMpStatus">Select a track below to play continuously</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <button class="btn btn-outline btn-sm" onclick="musicAction('prev')">⏮ Prev</button>
+                                    <button class="btn btn-primary btn-sm" id="webMpPlayBtn" onclick="musicAction('toggle')">▶ Play</button>
+                                    <button class="btn btn-outline btn-sm" onclick="musicAction('next')">⏭ Next</button>
+                                    <button class="btn btn-danger btn-sm" onclick="musicAction('stop')">⏹ Stop</button>
+                                </div>
+                            </div>
+                            <div style="margin-top:10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <span style="font-size:0.8rem; color:#fff; font-weight:600;">Player Volume:</span>
+                                <input type="range" id="webMpVolumeSlider" min="0" max="100" value="85" style="flex:1; min-width:120px; accent-color:var(--primary);" oninput="onMusicVolumeInput(this.value)" onchange="onMusicVolumeChange(this.value)">
+                                <span id="webMpVolumePercent" style="font-size:0.8rem; font-family:var(--font-mono); color:var(--primary); font-weight:700; min-width:38px;">85%</span>
+                            </div>
+                        </div>
+
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
                             <div style="font-size: 0.82rem; color: var(--text-muted); font-weight:500;">Uploaded Audio (<span id="audioCount">0</span>)</div>
                         </div>
@@ -2818,6 +3003,31 @@ class IpCameraServer(
                 listEl.innerHTML = html;
             }
 
+            // Update Web Music Player Widget
+            if (data.musicPlayer) {
+                var mp = data.musicPlayer;
+                var trackEl = document.getElementById('webMpTrackName');
+                var statusEl = document.getElementById('webMpStatus');
+                var playBtn = document.getElementById('webMpPlayBtn');
+                var slider = document.getElementById('webMpVolumeSlider');
+                var volPct = document.getElementById('webMpVolumePercent');
+
+                if (trackEl) {
+                    trackEl.innerText = mp.currentTrackName ? ('🎵 ' + mp.currentTrackName) : 'Music Player: Idle';
+                }
+                if (statusEl) {
+                    statusEl.innerText = mp.isPlaying ? ('Playing (' + (mp.positionFormatted || '00:00') + ' / ' + (mp.durationFormatted || '00:00') + ') • ' + (mp.repeatModeLabel || 'All Repeat')) : (mp.isPaused ? 'Paused' : 'Stopped / Ready');
+                }
+                if (playBtn) {
+                    playBtn.innerText = mp.isPlaying ? '⏸ Pause' : '▶ Play';
+                }
+                if (slider && !slider.matches(':active')) {
+                    var vInt = Math.round((mp.volume || 0.85) * 100);
+                    slider.value = vInt;
+                    if (volPct) volPct.innerText = vInt + '%';
+                }
+            }
+
             // Render Custom Audios
             var audios = data.customAudios || [];
             document.getElementById('audioCount').innerText = audios.length;
@@ -2830,10 +3040,15 @@ class IpCameraServer(
                     var safePath = encodeURIComponent(a.filePath);
                     var safeName = a.name.replace(/'/g, "\\'");
                     var safeId = a.id;
-                    aHtml += '<div class="item-card">' +
+                    var isCurrentMusic = data.musicPlayer && data.musicPlayer.currentTrackId === a.id;
+                    var isPlayingMusic = isCurrentMusic && data.musicPlayer.isPlaying;
+                    var playBtnLabel = isPlayingMusic ? '⏸ Pause' : '▶ Play in Player';
+
+                    aHtml += '<div class="item-card" style="' + (isPlayingMusic ? 'border-color:var(--primary); background:rgba(0,229,255,0.08);' : '') + '">' +
                         '<div style="flex:1; min-width:180px;">' +
                             '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">' +
                                 '<span style="font-size:0.88rem; font-weight:600; color:#fff; word-break:break-all;">' + a.name + '</span>' +
+                                (isPlayingMusic ? '<span class="tag tag-primary">Playing Now</span>' : '') +
                                 '<button class="btn btn-outline btn-sm" style="padding:2px 6px; font-size:0.72rem;" onclick="renameMediaPrompt(\'' + safeId + '\', \'audio\', \'' + safeName + '\')">Rename</button>' +
                             '</div>' +
                             '<div style="margin-top:6px;">' +
@@ -2841,9 +3056,9 @@ class IpCameraServer(
                             '</div>' +
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">' +
-                            '<button class="btn btn-outline btn-sm" onclick="openAddChimeWithAudio(\'' + a.id + '\', \'' + safeName + '\', \'' + safePath + '\')">Use in Schedule</button>' +
-                            '<button class="btn btn-outline btn-sm" onclick="testCustomAudio(\'' + safePath + '\')">Play on Device</button>' +
-                            '<button class="btn btn-outline btn-sm" onclick="stopAudioPlayback()">Stop</button>' +
+                            '<button class="btn btn-primary btn-sm" onclick="' + (isPlayingMusic ? 'musicAction(\'toggle\')' : ('playCustomMusic(\'' + safeId + '\', \'' + safePath + '\')')) + '">' + playBtnLabel + '</button>' +
+                            '<button class="btn btn-outline btn-sm" onclick="testCustomAudio(\'' + safePath + '\')">Test Chime</button>' +
+                            '<button class="btn btn-outline btn-sm" onclick="openAddChimeWithAudio(\'' + a.id + '\', \'' + safeName + '\', \'' + safePath + '\')">Schedule</button>' +
                             '<button class="btn btn-danger btn-sm" onclick="deleteMedia(\'' + a.id + '\', \'audio\')">Delete</button>' +
                         '</div>' +
                     '</div>';
@@ -3115,6 +3330,31 @@ class IpCameraServer(
                 body: JSON.stringify({ id: id })
             });
             showToast('Testing schedule on device...');
+        }
+
+        // Music Player Actions (User Requested)
+        function musicAction(action, data) {
+            fetch('/api/music/' + action, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data || {})
+            }).then(function() { refreshData(); });
+        }
+
+        function playCustomMusic(id, path) {
+            musicAction('play', { id: id, filePath: decodeURIComponent(path) });
+            showToast('Starting music playback on device...');
+        }
+
+        function onMusicVolumeInput(val) {
+            var el = document.getElementById('webMpVolumePercent');
+            if (el) el.innerText = val + '%';
+        }
+
+        function onMusicVolumeChange(val) {
+            var floatVal = parseFloat(val) / 100.0;
+            musicAction('volume', { volume: floatVal });
+            showToast('Music volume set to ' + val + '%');
         }
 
         function testCustomAudio(path) {

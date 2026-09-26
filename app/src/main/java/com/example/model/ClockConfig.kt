@@ -127,7 +127,10 @@ data class ClockPreferencesState(
     val fireAlertSoundEnabled: Boolean = true,
     val fireAlertVibration: Boolean = true,
     val fireAlertVoiceTts: Boolean = true,
-    val mq2SensitivityThreshold: Int = 900
+    val mq2SensitivityThreshold: Int = 900,
+    // Dedicated Music Player Settings
+    val musicPlayerVolume: Float = 0.85f,
+    val musicPlayerRepeatMode: String = "ALL" // "ALL", "ONE", "OFF", "SHUFFLE"
 )
 
 data class PhysicalButtonEvent(

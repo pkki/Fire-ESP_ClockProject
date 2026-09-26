@@ -114,57 +114,6 @@ fun BackgroundVideoLayer(
                             )
                         )
                 )
-
-                // 3. Floating Indicator Badge & Close Button on Top Edge
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 16.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0x99000000))
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = "動画再生中",
-                        tint = Color(0xFF64B5F6),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "背景動画: ${activeVideo.customVideoName ?: activeVideo.videoSourceType.displayName}",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    if (activeVideo.playVideoAudio) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "🔊 動画音声再生中",
-                            color = Color(0xFF80D8FF),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0x44FFFFFF),
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clickable { onDismiss() }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "停止",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                }
             }
         }
     }
