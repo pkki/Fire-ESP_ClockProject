@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.ActiveBackgroundVideo
 import com.example.model.ChimeVideoSourceType
 import com.example.model.CustomAudioItem
+import com.example.model.VideoDisplayLayer
 import java.io.File
 
 /**
@@ -58,6 +59,7 @@ fun MediaPlaybackHudBanner(
     onDismissVideo: () -> Unit,
     onDismissAudio: () -> Unit,
     onOpenMusicPlayer: (() -> Unit)? = null,
+    onToggleVideoDisplayLayer: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isVideoPlaying = activeVideo != null && activeVideo.videoSourceType != ChimeVideoSourceType.NONE
@@ -196,6 +198,39 @@ fun MediaPlaybackHudBanner(
                             color = Color(0xFF94A3B8),
                             fontSize = 10.5.sp,
                             fontWeight = FontWeight.Medium
+                        )
+                        if (isVideoPlaying) {
+                            val isFg = activeVideo?.displayLayer == VideoDisplayLayer.FOREGROUND
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isFg) Color(0x3338BDF8) else Color(0x22FFFFFF)
+                            ) {
+                                Text(
+                                    text = if (isFg) "前面" else "背景",
+                                    color = if (isFg) Color(0xFF38BDF8) else Color(0xFFCCCCCC),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (isVideoPlaying && onToggleVideoDisplayLayer != null) {
+                    val isFg = activeVideo?.displayLayer == VideoDisplayLayer.FOREGROUND
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0x2AFFFFFF),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, Color(0x44FFFFFF)),
+                        modifier = Modifier.clickable { onToggleVideoDisplayLayer.invoke() }
+                    ) {
+                        Text(
+                            text = if (isFg) "🔄 背景へ" else "🔄 前面へ",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
                 }

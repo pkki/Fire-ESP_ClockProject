@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
@@ -51,10 +52,12 @@ fun TopControlBar(
     timerSeconds: Int,
     isEspConnected: Boolean,
     isMusicPlaying: Boolean = false,
+    isVoiceListening: Boolean = false,
     onOpenSettings: (SettingsTab) -> Unit,
     onOpenTimer: () -> Unit,
     onOpenMusicPlayer: () -> Unit = {},
     onOpenIrRemote: () -> Unit = {},
+    onTriggerVoiceAssistant: () -> Unit = {},
     onToggleNightMode: () -> Unit,
     onToggleKioskLock: () -> Unit,
     onUnlockLongPress: () -> Unit,
@@ -155,6 +158,22 @@ fun TopControlBar(
                 onOpenMusicPlayer()
             }
         )
+
+        // 4.7 Voice Assistant (OK Google / OK クロック) Trigger
+        if (preferences.voiceAssistantEnabled) {
+            TopActionButton(
+                icon = Icons.Default.Mic,
+                label = if (isVoiceListening) "音声認識中" else "音声操作",
+                testTag = "btn_top_voice_assistant",
+                tint = if (isVoiceListening) Color(0xFFEA4335) else Color(0xFF4285F4),
+                showIndicator = isVoiceListening,
+                indicatorColor = Color(0xFFEA4335),
+                onClick = {
+                    onUserInteraction()
+                    onTriggerVoiceAssistant()
+                }
+            )
+        }
 
         // 5. Night stand mode
         TopActionButton(

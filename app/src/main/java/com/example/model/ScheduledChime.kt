@@ -12,12 +12,17 @@ enum class ChimeAudioSourceType {
 
 enum class ChimeVideoSourceType(val displayName: String, val description: String) {
     NONE("動画なし", "通常の時計背景"),
-    CUSTOM_FILE("端末の動画ファイル", "取り込んだMP4/WebM動画を背景で再生"),
+    CUSTOM_FILE("端末の動画ファイル", "取り込んだMP4/WebM動画を再生"),
     PRESET_AURORA("オーロラ・夜空", "幻想的な緑と紫のオーロラ・アニメーション"),
     PRESET_FIREPLACE("暖炉・キャンドル", "温かみのある揺らぐ炎のアンビエント背景"),
     PRESET_STARRY_NIGHT("満天の星空・流星", "夜空に流れる星と静かな宇宙空間"),
     PRESET_RAIN("癒しの雨滴・リフレッシュ", "ガラスに滴る雨と水面の波紋"),
     PRESET_SUNRISE("朝焼け・サンライズ", "爽快な朝の陽射しとグラデーション")
+}
+
+enum class VideoDisplayLayer(val label: String, val shortLabel: String, val description: String) {
+    BACKGROUND("時計の背景に表示", "背景", "時計の文字盤の背面に動画を表示（時間やセンサー情報を透過表示）"),
+    FOREGROUND("時計の前面に表示", "前面", "時計の文字盤の手前に動画をフルスクリーン表示（動画メイン再生）")
 }
 
 data class CustomAudioItem(
@@ -43,7 +48,8 @@ data class ActiveBackgroundVideo(
     val playVideoAudio: Boolean = false,
     val volume: Float = 0.85f,
     val startTimeMs: Long = System.currentTimeMillis(),
-    val durationSeconds: Int = 60 // 0 = 停止ボタンを押すまで, 30, 60, 180, 300
+    val durationSeconds: Int = 60, // 0 = 停止ボタンを押すまで, 30, 60, 180, 300, -1 = 動画の長さ
+    val displayLayer: VideoDisplayLayer = VideoDisplayLayer.BACKGROUND
 )
 
 data class ScheduledChime(
@@ -60,13 +66,14 @@ data class ScheduledChime(
     val customAudioName: String? = null,
     val customAudioPath: String? = null,
     val volume: Float = 0.85f,
-    // Video background settings
+    // Video settings
     val videoSourceType: ChimeVideoSourceType = ChimeVideoSourceType.NONE,
     val customVideoId: String? = null,
     val customVideoName: String? = null,
     val customVideoPath: String? = null,
     val videoDurationSeconds: Int = 60, // -1 = 動画の長さ(1周再生), 0 = 停止ボタンを押すまで, 30, 60, 180...
     val playVideoAudio: Boolean = false,
+    val videoDisplayLayer: VideoDisplayLayer = VideoDisplayLayer.BACKGROUND,
     // IR remote routine settings (家電リモコン操作連動)
     val irSendEnabled: Boolean = false,
     val irButtonId: String? = null,

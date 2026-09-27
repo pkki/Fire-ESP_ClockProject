@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -119,6 +121,182 @@ fun BackgroundVideoLayer(
     }
 }
 
+/**
+ * 前面フルスクリーン動画プレイヤー (Foreground Video Overlay)
+ * 時計の文字盤の手前（最前面）に動画を表示し、画面タップで操作HUD（背景切替・停止・タイトル）を表示します。
+ */
+@Composable
+fun ForegroundVideoOverlay(
+    activeVideo: ActiveBackgroundVideo?,
+    onDismiss: () -> Unit,
+    onToggleDisplayLayer: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showHud by remember { mutableStateOf(true) }
+
+    AnimatedVisibility(
+        visible = activeVideo != null && activeVideo.videoSourceType != ChimeVideoSourceType.NONE,
+        enter = fadeIn(animationSpec = tween(400)),
+        exit = fadeOut(animationSpec = tween(400)),
+        modifier = modifier
+    ) {
+        if (activeVideo != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { showHud = !showHud }
+            ) {
+                // 1. Video content (Custom video or preset animated background) in foreground
+                when (activeVideo.videoSourceType) {
+                    ChimeVideoSourceType.CUSTOM_FILE -> {
+                        if (!activeVideo.customVideoPath.isNullOrBlank()) {
+                            CustomVideoTexturePlayer(
+                                videoPath = activeVideo.customVideoPath,
+                                playAudio = activeVideo.playVideoAudio,
+                                volume = activeVideo.volume,
+                                durationSeconds = activeVideo.durationSeconds,
+                                onVideoEnded = onDismiss
+                            )
+                        }
+                    }
+                    ChimeVideoSourceType.PRESET_AURORA -> PresetAuroraBackground()
+                    ChimeVideoSourceType.PRESET_FIREPLACE -> PresetFireplaceBackground()
+                    ChimeVideoSourceType.PRESET_STARRY_NIGHT -> PresetStarryNightBackground()
+                    ChimeVideoSourceType.PRESET_RAIN -> PresetRainBackground()
+                    ChimeVideoSourceType.PRESET_SUNRISE -> PresetSunriseBackground()
+                    ChimeVideoSourceType.NONE -> { /* no-op */ }
+                }
+
+                // 2. Animated HUD Overlay for Foreground playback
+                AnimatedVisibility(
+                    visible = showHud,
+                    enter = fadeIn(tween(200)),
+                    exit = fadeOut(tween(200)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Top HUD Bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color(0xEE0A0E17), Color.Transparent)
+                                    )
+                                )
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0x3300E5FF),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Videocam,
+                                        contentDescription = null,
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.padding(6.dp).size(18.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = activeVideo.customVideoName ?: activeVideo.videoSourceType.displayName,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "📺 前面フルスクリーン再生中",
+                                        color = Color(0xFF00E5FF),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Switch to Background Mode Button
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0x441E293B),
+                                    border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFF38BDF8)),
+                                    modifier = Modifier.clickable { onToggleDisplayLayer() }
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(text = "🔄", fontSize = 12.sp)
+                                        Text(
+                                            text = "時計の背景に切り替え",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                // Close / Stop Button
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0x44EF4444),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444)),
+                                    modifier = Modifier.clickable { onDismiss() }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "閉じる",
+                                        tint = Color.White,
+                                        modifier = Modifier.padding(8.dp).size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Bottom Minimal Hint Bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color(0xEE0A0E17))
+                                    )
+                                )
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "画面タップで操作バーの表示/非表示",
+                                color = Color(0xAAFFFFFF),
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = if (activeVideo.playVideoAudio) "🔊 音声出力中" else "🔇 映像のみ",
+                                color = if (activeVideo.playVideoAudio) Color(0xFF4ADE80) else Color(0xFFAAAAAA),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun CustomVideoTexturePlayer(
     videoPath: String,
@@ -181,6 +359,10 @@ fun CustomVideoTexturePlayer(
                             setVolume(volume, volume)
                         }
                         setOnPreparedListener { p ->
+                            val sessionId = p.audioSessionId
+                            if (sessionId > 0) {
+                                com.example.audio.AudioEqualizerManager.registerAudioSession(sessionId)
+                            }
                             p.start()
                         }
                         prepareAsync()
@@ -214,8 +396,14 @@ fun CustomVideoTexturePlayer(
 
                     override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
                         try {
-                            player?.stop()
-                            player?.release()
+                            player?.let { p ->
+                                val sessionId = try { p.audioSessionId } catch (_: Exception) { 0 }
+                                if (sessionId > 0) {
+                                    com.example.audio.AudioEqualizerManager.unregisterAudioSession(sessionId)
+                                }
+                                p.stop()
+                                p.release()
+                            }
                             player = null
                             activeSurface?.release()
                             activeSurface = null

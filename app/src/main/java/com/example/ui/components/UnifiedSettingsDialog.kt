@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -143,6 +144,7 @@ import com.example.model.ChimeAudioSourceType
 import com.example.model.IrDeviceCategory
 import com.example.model.IrRemoteButton
 import com.example.model.ChimeVideoSourceType
+import com.example.model.VideoDisplayLayer
 import com.example.model.ClockFace
 import com.example.model.ClockPreferencesState
 import com.example.model.ColorPalette
@@ -153,13 +155,20 @@ import com.example.model.EewScaleLevel
 import com.example.model.EewTestScenario
 import com.example.model.ScheduledChime
 import com.example.model.WeatherState
+import com.example.model.WakeWordOption
+import com.example.model.EqualizerPreset
+import com.example.model.BassCutMode
+import com.example.model.EqualizerState
+import com.example.audio.AudioEqualizerManager
 
 enum class SettingsTab(val title: String, val icon: ImageVector) {
     FACE_PALETTE("文字盤・デザイン", Icons.Default.Palette),
+    EQUALIZER("音質・イコライザー", Icons.Default.GraphicEq),
     ALARM("目覚まし・物理ボタン", Icons.Default.Alarm),
     ESP_SENSOR("ESP温湿度気圧", Icons.Default.Sensors),
     IR_REMOTE("スマート家電・赤外線", Icons.Default.Sensors),
     IP_CAMERA("IPカメラ配信", Icons.Default.Videocam),
+    VOICE_ASSISTANT("音声・OK Google", Icons.Default.Mic),
     EEW("緊急地震速報", Icons.Default.Warning),
     CHIMES("時報・チャイム", Icons.Default.NotificationsActive),
     MEDIA("音声・動画管理", Icons.Default.Audiotrack),
@@ -321,6 +330,9 @@ fun UnifiedSettingsDialog(
                                 preferences = preferences,
                                 viewModel = viewModel
                             )
+                            SettingsTab.EQUALIZER -> EqualizerSettingsContent(
+                                viewModel = viewModel
+                            )
                             SettingsTab.ALARM -> AlarmSettingsTabContent(
                                 viewModel = viewModel,
                                 preferences = preferences
@@ -344,6 +356,10 @@ fun UnifiedSettingsDialog(
                                 onRestartCamera = { viewModel.restartIpCamera() },
                                 onUpdateConfig = { viewModel.setIpCameraConfig(it) },
                                 onSwitchLens = { viewModel.switchIpCameraLens() }
+                            )
+                            SettingsTab.VOICE_ASSISTANT -> VoiceAssistantSettingsContent(
+                                preferences = preferences,
+                                viewModel = viewModel
                             )
                             SettingsTab.EEW -> EewSettingsContent(
                                 preferences = preferences,
@@ -1228,6 +1244,41 @@ private fun ChimesSettingsContent(
             }
         }
 
+        // Earphone Jack Anti-Noise Keep-Alive (常時無音再生 / ノイズ・ポップ音防止)
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0x18FFFFFF))
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("イヤホンジャック・ノイズ防止（常時無音再生）", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        if (preferences.antiNoiseSilenceEnabled) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0x3300E5FF))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("無音再生中", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Text("アンプスリープによるジー音・待機ノイズや、チャイム開始時のポップ音（プチッ音）を防止します", fontSize = 11.sp, color = Color(0xFF9E9EA8))
+                }
+                Switch(
+                    checked = preferences.antiNoiseSilenceEnabled,
+                    onCheckedChange = { viewModel.setAntiNoiseSilenceEnabled(it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF00E5FF))
+                )
+            }
+        }
+
         // Hourly Chime Sound Selector (8 types)
         item {
             Column(
@@ -1933,6 +1984,7 @@ private fun EditScheduledChimeDialog(
         )
     }
     var playVideoAudio by remember { mutableStateOf(chime.playVideoAudio) }
+    var videoDisplayLayer by remember { mutableStateOf(chime.videoDisplayLayer) }
 
     fun buildCurrentChime(): ScheduledChime {
         val isVideoSound = sourceType == ChimeAudioSourceType.VIDEO_SOUND
@@ -1953,6 +2005,7 @@ private fun EditScheduledChimeDialog(
             customVideoPath = customVideoPath,
             videoDurationSeconds = videoDurationSeconds,
             playVideoAudio = playVideoAudio || isVideoSound,
+            videoDisplayLayer = videoDisplayLayer,
             irSendEnabled = irSendEnabled,
             irButtonId = if (irSendEnabled) irButtonId else null,
             irButtonName = if (irSendEnabled) irButtonName else null
@@ -2550,6 +2603,43 @@ private fun EditScheduledChimeDialog(
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text("秒", fontSize = 12.sp, color = Color.White)
+                                    }
+                                }
+                            }
+
+                            // Video display layer selection (背景 vs 前面)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text("動画の表示位置:", fontSize = 11.sp, color = Color(0xFFAAAAAA))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    VideoDisplayLayer.BACKGROUND to "時計の背景 (時間透過)",
+                                    VideoDisplayLayer.FOREGROUND to "時計の前面 (全画面)"
+                                ).forEach { (layer, lText) ->
+                                    val isSel = videoDisplayLayer == layer
+                                    OutlinedButton(
+                                        onClick = { videoDisplayLayer = layer },
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (isSel) Color(0x33FF0055) else Color.Transparent
+                                        ),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSel) Color(0xFFFF4081) else Color(0x33FFFFFF)
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(32.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(2.dp)
+                                    ) {
+                                        Text(
+                                            lText,
+                                            fontSize = 11.sp,
+                                            color = if (isSel) Color(0xFFFF4081) else Color.White,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                        )
                                     }
                                 }
                             }
@@ -3299,7 +3389,46 @@ private fun MediaManagementSettingsContent(
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("チャイム鳴動時に全画面背景として流れる動画 (MP4, WebM等)。動画の長さでの再生やカスタム秒数再生に対応。", fontSize = 11.sp, color = Color(0xFF9E9EA8))
+                Text("チャイム鳴動時や手動再生時の動画 (MP4, WebM等)。時計の背景（時間透過）または前面（全画面）で再生できます。", fontSize = 11.sp, color = Color(0xFF9E9EA8))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Default Video Display Layer Selection
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0x10FFFFFF))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("デフォルト表示位置:", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    val isDefaultFg = preferences.defaultVideoDisplayLayer == "FOREGROUND"
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(
+                            onClick = { viewModel.setDefaultVideoDisplayLayer(VideoDisplayLayer.BACKGROUND) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (!isDefaultFg) Color(0x33FF0055) else Color.Transparent
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (!isDefaultFg) Color(0xFFFF4081) else Color(0x33FFFFFF)),
+                            modifier = Modifier.height(26.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 1.dp)
+                        ) {
+                            Text("時計の背景", fontSize = 10.sp, color = if (!isDefaultFg) Color(0xFFFF4081) else Color.White)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.setDefaultVideoDisplayLayer(VideoDisplayLayer.FOREGROUND) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isDefaultFg) Color(0x3338BDF8) else Color.Transparent
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isDefaultFg) Color(0xFF38BDF8) else Color(0x33FFFFFF)),
+                            modifier = Modifier.height(26.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 1.dp)
+                        ) {
+                            Text("時計の前面", fontSize = 10.sp, color = if (isDefaultFg) Color(0xFF38BDF8) else Color.White)
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text("プリセット動画演出の即時プレビュー:", fontSize = 11.sp, color = Color(0xFFAAAAAA))
@@ -3316,7 +3445,7 @@ private fun MediaManagementSettingsContent(
                         ChimeVideoSourceType.PRESET_SUNRISE to "朝焼け"
                     ).forEach { (vType, label) ->
                         OutlinedButton(
-                            onClick = { viewModel.previewBackgroundVideo(vType, durationSeconds = 10) },
+                            onClick = { viewModel.previewBackgroundVideo(vType, durationSeconds = 15) },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(32.dp),
@@ -3370,25 +3499,39 @@ private fun MediaManagementSettingsContent(
                                         renameText = video.name
                                     },
                                     modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("リネーム", fontSize = 10.sp, color = Color(0xFFCCCCCC))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("改名", fontSize = 10.sp, color = Color(0xFFCCCCCC))
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
 
-                                // Video + Audio Play on device
+                                // Play in Background (時計の背景で再生)
                                 Button(
-                                    onClick = { viewModel.testPlayCustomVideo(video, withAudio = true) },
+                                    onClick = { viewModel.testPlayCustomVideo(video, withAudio = true, displayLayer = VideoDisplayLayer.BACKGROUND) },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF0055)),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF4081)),
                                     modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("映像+音声テスト", fontSize = 10.sp, color = Color(0xFFFF4081), fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("背景再生", fontSize = 10.sp, color = Color(0xFFFF4081), fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                // Play in Foreground (時計の前面で再生)
+                                Button(
+                                    onClick = { viewModel.testPlayCustomVideo(video, withAudio = true, displayLayer = VideoDisplayLayer.FOREGROUND) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                                    modifier = Modifier.height(28.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text("前面再生", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                                 }
                                 Spacer(modifier = Modifier.width(4.dp))
 
@@ -3396,11 +3539,11 @@ private fun MediaManagementSettingsContent(
                                 OutlinedButton(
                                     onClick = { viewModel.testPlayCustomAudio(video.filePath) },
                                     modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 5.dp, vertical = 2.dp)
                                 ) {
-                                    Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(13.dp))
+                                    Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(12.dp))
                                     Spacer(modifier = Modifier.width(2.dp))
-                                    Text("音声のみ", fontSize = 10.sp, color = Color(0xFF81C784))
+                                    Text("音声", fontSize = 10.sp, color = Color(0xFF81C784))
                                 }
                                 Spacer(modifier = Modifier.width(4.dp))
 
@@ -3411,13 +3554,13 @@ private fun MediaManagementSettingsContent(
                                         viewModel.stopAudioPlayback()
                                     },
                                     modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 5.dp, vertical = 2.dp)
                                 ) {
-                                    Icon(Icons.Default.Stop, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(13.dp))
+                                    Icon(Icons.Default.Stop, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(12.dp))
                                     Spacer(modifier = Modifier.width(2.dp))
                                     Text("停止", fontSize = 10.sp, color = Color(0xFFFF5252))
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
 
                                 IconButton(onClick = { viewModel.deleteCustomVideo(video) }, modifier = Modifier.size(28.dp)) {
                                     Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
@@ -5170,6 +5313,879 @@ private fun EewSettingsContent(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// TAB: ULTRA-LIGHTWEIGHT VOICE ASSISTANT & WAKE WORD
+// -------------------------------------------------------------
+@Composable
+private fun VoiceAssistantSettingsContent(
+    preferences: ClockPreferencesState,
+    viewModel: ClockViewModel
+) {
+    val context = LocalContext.current
+    val voiceState by viewModel.voiceAssistantState.collectAsState()
+    var customKeywordText by remember { mutableStateOf(preferences.customWakeWord) }
+
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.startVoiceAssistantActiveListening()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 14.dp)
+    ) {
+        // Hero Card: Voice Assistant Status & Quick Test
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0x184285F4),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0x664285F4)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (voiceState.isActivelyListening) Color(0xFFEA4335) else Color(0x334285F4),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (voiceState.isActivelyListening) Color(0xFFFF5252) else Color(0xFF4285F4)),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = if (voiceState.isActivelyListening) Color.White else Color(0xFF60A5FA),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = "超軽量 音声アシスタント (OK Google / OK クロック)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (preferences.voiceAssistantEnabled && preferences.wakeWordListeningEnabled)
+                                "🎙️ 常時ウェイクワード待機中: 「${preferences.wakeWordType}」"
+                            else if (preferences.voiceAssistantEnabled)
+                                "タップ起動モード（常時待機OFF）"
+                            else
+                                "音声機能は無効です",
+                            fontSize = 11.sp,
+                            color = if (preferences.voiceAssistantEnabled) Color(0xFF38BDF8) else Color(0xFFAAAAAA)
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            viewModel.startVoiceAssistantActiveListening()
+                        } else {
+                            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("話しかける", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 1. Voice Assistant Master Toggle
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0x0CFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("音声アシスタント機能を有効にする", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("音声コマンドによる時間・天気・音楽・タイマー・家電操作に対応", color = Color(0xFF888888), fontSize = 11.sp)
+                }
+                Switch(
+                    checked = preferences.voiceAssistantEnabled,
+                    onCheckedChange = { viewModel.updateVoiceAssistantEnabled(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF4285F4)
+                    )
+                )
+            }
+        }
+
+        if (preferences.voiceAssistantEnabled) {
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 2. Continuous Wake Word Listening Toggle
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0x0CFFFFFF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("ウェイクワード常時待機 (ハンズフリー起動)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("画面に触れずに「OK Google」や「OK クロック」と呼ぶだけで起動", color = Color(0xFF888888), fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = preferences.wakeWordListeningEnabled,
+                            onCheckedChange = { viewModel.updateWakeWordListeningEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF34A853)
+                            )
+                        )
+                    }
+
+                    if (preferences.wakeWordListeningEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("起動フレーズ（ウェイクワード）の選択:", fontSize = 11.sp, color = Color(0xFFAAAAAA), fontWeight = FontWeight.Medium)
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                WakeWordOption.OK_CLOCK to "「OK クロック」",
+                                WakeWordOption.OK_GOOGLE to "「OK Google」",
+                                WakeWordOption.HEY_ASSISTANT to "「ヘイ アシスタント」",
+                                WakeWordOption.CUSTOM to "カスタム"
+                            ).forEach { (opt, label) ->
+                                val isSelected = preferences.wakeWordType == opt.id
+                                OutlinedButton(
+                                    onClick = { viewModel.updateWakeWordType(opt.id) },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (isSelected) Color(0x334285F4) else Color.Transparent
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isSelected) Color(0xFF4285F4) else Color(0x33FFFFFF)
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(32.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 10.sp,
+                                        color = if (isSelected) Color.White else Color(0xFFCCCCCC),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+
+                        if (preferences.wakeWordType == WakeWordOption.CUSTOM.id) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = customKeywordText,
+                                    onValueChange = { customKeywordText = it },
+                                    label = { Text("カスタムキーワード (例: おはよう, クロック)", fontSize = 10.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF4285F4),
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+                                Button(
+                                    onClick = {
+                                        viewModel.updateCustomWakeWord(customKeywordText.trim())
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                                    modifier = Modifier.height(48.dp)
+                                ) {
+                                    Text("保存", fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 3. Voice TTS Audio Feedback Settings
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0x0CFFFFFF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("音声（TTS）による回答読み上げ", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("「いま何時？」や「今日の天気」の回答を自然な日本語音声で発声", color = Color(0xFF888888), fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = preferences.voiceTtsResponseEnabled,
+                            onCheckedChange = { viewModel.updateVoiceTtsResponseEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF4285F4)
+                            )
+                        )
+                    }
+
+                    if (preferences.voiceTtsResponseEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("話速 (スピード):", fontSize = 11.sp, color = Color(0xFFAAAAAA))
+                                    Text("${String.format("%.2f", preferences.voiceTtsSpeechRate)}x", fontSize = 11.sp, color = Color(0xFF4285F4), fontWeight = FontWeight.Bold)
+                                }
+                                Slider(
+                                    value = preferences.voiceTtsSpeechRate,
+                                    onValueChange = { viewModel.updateVoiceTtsSpeechRate(it) },
+                                    valueRange = 0.8f..1.5f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF4285F4),
+                                        activeTrackColor = Color(0xFF4285F4)
+                                    )
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("声の高さ (ピッチ):", fontSize = 11.sp, color = Color(0xFFAAAAAA))
+                                    Text("${String.format("%.2f", preferences.voiceTtsPitch)}", fontSize = 11.sp, color = Color(0xFF4285F4), fontWeight = FontWeight.Bold)
+                                }
+                                Slider(
+                                    value = preferences.voiceTtsPitch,
+                                    onValueChange = { viewModel.updateVoiceTtsPitch(it) },
+                                    valueRange = 0.7f..1.4f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF4285F4),
+                                        activeTrackColor = Color(0xFF4285F4)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 4. Quick Test Command Chips
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0x0CFFFFFF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("💡 音声コマンドのテスト（ワンタップで実行）:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val commandList = listOf(
+                        "🕒 いま何時？" to "いま何時？",
+                        "☀️ 今日の天気" to "今日の天気は？",
+                        "🎵 音楽かけて" to "音楽かけて",
+                        "⏹ 音楽止めて" to "音楽止めて",
+                        "⏭ 次の曲" to "次の曲にして",
+                        "🔊 音量上げて" to "音量上げて",
+                        "⏱ 3分タイマー" to "3分タイマー",
+                        "🌌 オーロラ見せて" to "オーロラ見せて",
+                        "🔥 暖炉つけて" to "暖炉見せて",
+                        "💡 電気つけて" to "電気つけて",
+                        "🌙 夜間モード" to "夜間モードにして",
+                        "❓ 何ができるの" to "何ができるの？"
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        commandList.take(6).forEach { (label, cmd) ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0x22FFFFFF))
+                                    .clickable { viewModel.processVoiceCommandText(cmd) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text(label, fontSize = 10.sp, color = Color(0xFFE2E8F0))
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        commandList.drop(6).forEach { (label, cmd) ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color(0x22FFFFFF))
+                                    .clickable { viewModel.processVoiceCommandText(cmd) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Text(label, fontSize = 10.sp, color = Color(0xFFE2E8F0))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// TAB: MASTER EQUALIZER & SPEAKER BASS PROTECTION
+// -------------------------------------------------------------
+@Composable
+private fun EqualizerSettingsContent(
+    viewModel: ClockViewModel
+) {
+    val eqState by viewModel.equalizerState.collectAsState()
+    val preferences by viewModel.preferences.collectAsState()
+    val musicState by viewModel.musicPlayerState.collectAsState()
+    val isSilencePlaying by viewModel.isSilenceKeepAlivePlaying.collectAsState()
+    val effectiveGains = eqState.getEffectiveBandGains()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 14.dp)
+    ) {
+        // 1. Hero Card: Master Equalizer Status & Quick Toggle
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0x1800E5FF),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0x6600E5FF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (eqState.isEnabled) Color(0x3300E5FF) else Color(0x22FFFFFF),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (eqState.isEnabled) Color(0xFF00E5FF) else Color(0x44FFFFFF)),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = if (eqState.isEnabled) Color(0xFF00E5FF) else Color(0xFFAAAAAA),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text(
+                            text = "システム音質イコライザー & スピーカー保護",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (eqState.isEnabled)
+                                "🎚️ 現在: ${eqState.currentPreset.displayName} (低音カット: ${eqState.bassCutMode.displayName})"
+                            else
+                                "イコライザーはOFF（無加工スルー再生）です",
+                            fontSize = 11.sp,
+                            color = if (eqState.isEnabled) Color(0xFF38BDF8) else Color(0xFFAAAAAA)
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.resetEqualizerToFlat() },
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0x11FFFFFF)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF)),
+                        modifier = Modifier.height(36.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFCCCCCC))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("標準に戻す", fontSize = 11.sp, color = Color(0xFFCCCCCC))
+                    }
+
+                    Switch(
+                        checked = eqState.isEnabled,
+                        onCheckedChange = { viewModel.setEqualizerEnabled(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF00E5FF)
+                        )
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 2. Earphone Jack Anti-Noise Keep-Alive Card (常時無音再生 / イヤホンジャックノイズ・ポップ音防止)
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color(0x1800E5FF),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0x33FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (preferences.antiNoiseSilenceEnabled) Color(0x3300E5FF) else Color(0x22FFFFFF),
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.VolumeMute,
+                                contentDescription = null,
+                                tint = if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0xFFAAAAAA),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "🔇 イヤホンジャック・ノイズ防止（常時無音再生）",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSilencePlaying) Color(0xFF00E5FF) else Color(0x33FFFFFF))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = if (isSilencePlaying) "● 常時出力中 (DACスリープ防止)" else "○ 停止中",
+                                    fontSize = 9.5.sp,
+                                    color = if (isSilencePlaying) Color.Black else Color(0xFFCCCCCC),
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "タブレットのイヤホン端子や外部アンプが待機状態で発する「ジー」「サー」というホワイトノイズや、音が出る瞬間の「プチッ」というポップノイズを完全に防止するため、バックグラウンドで超低負荷な無音信号を常時流し続けます。（CPU負荷0%）",
+                            fontSize = 10.5.sp,
+                            color = Color(0xFFB0B0BE),
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = preferences.antiNoiseSilenceEnabled,
+                    onCheckedChange = { viewModel.setAntiNoiseSilenceEnabled(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = Color(0xFF00E5FF)
+                    )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // 3. HIGHLIGHTED FEATURE: Low Frequency / Bass Cut Filter for Small Speakers (低音カット保護フィルター)
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = Color(0x1EFA541C),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0x88FA541C)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("🛡️ 小型スピーカー用 低音カット保護フィルター", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFFF7A45))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("音割れ・ビビリ防止", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "※時計端末の内蔵スピーカーや小型外部スピーカーが低音（重低音・EDM・ドラム）の再生で音割れしたり震えたりするのを防ぐため、耳障りな超低音域を段階的にカットします。",
+                    fontSize = 11.sp,
+                    color = Color(0xFFFFD8BF),
+                    lineHeight = 15.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    BassCutMode.entries.forEach { mode ->
+                        val isSelected = eqState.bassCutMode == mode
+                        OutlinedButton(
+                            onClick = { viewModel.setEqualizerBassCutMode(mode) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) Color(0x66FA541C) else Color(0x12FFFFFF)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFFFF7A45) else Color(0x33FFFFFF)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(34.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = mode.displayName.split(" ")[0],
+                                fontSize = 10.sp,
+                                color = if (isSelected) Color.White else Color(0xFFCCCCCC),
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 3. EQUALIZER PRESETS
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0x0CFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text("🎵 音質プリセット選択:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Presets Row 1
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        EqualizerPreset.FLAT,
+                        EqualizerPreset.BASS_REDUCE,
+                        EqualizerPreset.BASS_CUT_LIGHT,
+                        EqualizerPreset.VOCAL,
+                        EqualizerPreset.TREBLE_BOOST
+                    ).forEach { preset ->
+                        val isSel = eqState.currentPreset == preset
+                        OutlinedButton(
+                            onClick = { viewModel.setEqualizerPreset(preset) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSel) Color(0x3300E5FF) else Color(0x0CFFFFFF)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = preset.displayName.split(" ")[0],
+                                fontSize = 10.sp,
+                                color = if (isSel) Color(0xFF00E5FF) else Color(0xFFDDDDDD),
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Presets Row 2
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        EqualizerPreset.NIGHT_RELAX,
+                        EqualizerPreset.POP,
+                        EqualizerPreset.ROCK,
+                        EqualizerPreset.CLASSICAL,
+                        EqualizerPreset.BASS_BOOST
+                    ).forEach { preset ->
+                        val isSel = eqState.currentPreset == preset
+                        OutlinedButton(
+                            onClick = { viewModel.setEqualizerPreset(preset) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSel) Color(0x3300E5FF) else Color(0x0CFFFFFF)
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = preset.displayName.split(" ")[0],
+                                fontSize = 10.sp,
+                                color = if (isSel) Color(0xFF00E5FF) else Color(0xFFDDDDDD),
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4. 5-BAND GRAPHIC EQUALIZER SLIDERS
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0x0CFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("🎚️ 5バンド・手動周波数調整 (-15dB 〜 +15dB):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(
+                        text = if (eqState.currentPreset == EqualizerPreset.CUSTOM) "カスタム設定中" else eqState.currentPreset.displayName,
+                        fontSize = 11.sp,
+                        color = Color(0xFF00E5FF),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val bandDescriptions = listOf(
+                    "重低音・キック (60Hz)" to "小型スピーカーのビビリ・音割れに最も影響",
+                    "低中音・ベース (230Hz)" to "楽器の厚み・ふくよかさ",
+                    "中音・ボーカル (910Hz)" to "歌声・アナウンス・時報の明瞭感",
+                    "中高音・クリア (3.6kHz)" to "音の抜け・繊細さ・アタック感",
+                    "超高音・空気感 (14kHz)" to "シンバル・透明感・伸び"
+                )
+
+                bandDescriptions.forEachIndexed { index, (label, desc) ->
+                    val gainVal = eqState.bandGainsDb.getOrElse(index) { 0 }
+                    val effectiveGain = effectiveGains.getOrElse(index) { 0 }
+
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "${AudioEqualizerManager.getBandFrequencyLabel(index)} - $label",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(desc, fontSize = 9.sp, color = Color(0xFF888888))
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (effectiveGain != gainVal) {
+                                    Text(
+                                        text = "(実効: ${if (effectiveGain > 0) "+$effectiveGain" else "$effectiveGain"}dB)",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFFF7A45)
+                                    )
+                                }
+                                Text(
+                                    text = if (gainVal > 0) "+${gainVal} dB" else "${gainVal} dB",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (gainVal > 0) Color(0xFF00E5FF) else if (gainVal < 0) Color(0xFFFF8080) else Color(0xFFAAAAAA)
+                                )
+                            }
+                        }
+
+                        Slider(
+                            value = gainVal.toFloat(),
+                            onValueChange = { newVal ->
+                                viewModel.setEqualizerBandGain(index, newVal.toInt())
+                            },
+                            valueRange = -15f..15f,
+                            steps = 29,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF00E5FF),
+                                activeTrackColor = Color(0xFF00E5FF),
+                                inactiveTrackColor = Color(0x33FFFFFF)
+                            ),
+                            modifier = Modifier.height(26.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 5. TEST AUDIO PLAYER (Listen to EQ effect live)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0x0CFFFFFF),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("🎧 イコライザー効果の試聴・テスト:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("再生しながらリアルタイムにイコライザーや低音カットを調整できます", fontSize = 10.sp, color = Color(0xFF888888))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = { viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("時報テスト", fontSize = 10.sp, color = Color(0xFF00E5FF))
+                    }
+
+                    if (musicState.isPlaying) {
+                        Button(
+                            onClick = { viewModel.pauseMusic() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF0055)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF0055)),
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("音楽停止", fontSize = 10.sp, color = Color(0xFFFF4081))
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                val tracks = viewModel.customAudioList.value
+                                if (tracks.isNotEmpty()) {
+                                    viewModel.playMusic(tracks.first(), tracks)
+                                } else {
+                                    viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34A853)),
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("音楽再生", fontSize = 10.sp, color = Color.White)
                         }
                     }
                 }

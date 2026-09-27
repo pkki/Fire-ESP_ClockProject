@@ -161,9 +161,15 @@ class EewVoiceAnnouncer(private val context: Context) : TextToSpeech.OnInitListe
                 val mp = MediaPlayer.create(appContext, R.raw.eew_chime)
                 if (mp != null) {
                     activeMediaPlayer = mp
+                    try {
+                        AudioEqualizerManager.registerAudioSession(mp.audioSessionId)
+                    } catch (_: Exception) {}
                     mp.setVolume(vol, vol)
                     mp.setOnCompletionListener {
                         isPlayingChime = false
+                        try {
+                            AudioEqualizerManager.unregisterAudioSession(mp.audioSessionId)
+                        } catch (_: Exception) {}
                         mp.release()
                         if (activeMediaPlayer == mp) {
                             activeMediaPlayer = null
@@ -348,8 +354,14 @@ class EewVoiceAnnouncer(private val context: Context) : TextToSpeech.OnInitListe
             val mp = MediaPlayer.create(appContext, resId)
             if (mp != null) {
                 activeMediaPlayer = mp
+                try {
+                    AudioEqualizerManager.registerAudioSession(mp.audioSessionId)
+                } catch (_: Exception) {}
                 mp.setVolume(vol, vol)
                 mp.setOnCompletionListener {
+                    try {
+                        AudioEqualizerManager.unregisterAudioSession(mp.audioSessionId)
+                    } catch (_: Exception) {}
                     mp.release()
                     if (activeMediaPlayer == mp) {
                         activeMediaPlayer = null
@@ -365,6 +377,9 @@ class EewVoiceAnnouncer(private val context: Context) : TextToSpeech.OnInitListe
     private fun stopActivePlayer() {
         try {
             activeMediaPlayer?.let {
+                try {
+                    AudioEqualizerManager.unregisterAudioSession(it.audioSessionId)
+                } catch (_: Exception) {}
                 if (it.isPlaying) {
                     it.stop()
                 }

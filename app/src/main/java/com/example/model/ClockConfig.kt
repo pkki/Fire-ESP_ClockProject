@@ -130,7 +130,28 @@ data class ClockPreferencesState(
     val mq2SensitivityThreshold: Int = 900,
     // Dedicated Music Player Settings
     val musicPlayerVolume: Float = 0.85f,
-    val musicPlayerRepeatMode: String = "ALL" // "ALL", "ONE", "OFF", "SHUFFLE"
+    val musicPlayerRepeatMode: String = "ALL", // "ALL", "ONE", "OFF", "SHUFFLE"
+    // Video Playback Display Layer Setting ("BACKGROUND" = 時計の背後, "FOREGROUND" = 時計の前面)
+    val defaultVideoDisplayLayer: String = "BACKGROUND",
+    // Ultra-lightweight Voice Assistant & Wake Word Settings
+    val voiceAssistantEnabled: Boolean = true,
+    val wakeWordListeningEnabled: Boolean = true,
+    val wakeWordType: String = "OK_CLOCK", // "OK_CLOCK", "OK_GOOGLE", "HEY_ASSISTANT", "CUSTOM"
+    val customWakeWord: String = "クロック",
+    val voiceTtsResponseEnabled: Boolean = true,
+    val voiceTtsPitch: Float = 1.0f,
+    val voiceTtsSpeechRate: Float = 1.05f,
+    // Master System-Wide Equalizer & Bass Protection Settings
+    val equalizerEnabled: Boolean = true,
+    val equalizerPreset: String = "FLAT", // FLAT, BASS_REDUCE, BASS_CUT_LIGHT, VOCAL, TREBLE_BOOST, BASS_BOOST, NIGHT_RELAX, POP, ROCK, CLASSICAL, CUSTOM
+    val equalizerBand0: Int = 0, // 60Hz (-15dB .. +15dB)
+    val equalizerBand1: Int = 0, // 230Hz
+    val equalizerBand2: Int = 0, // 910Hz
+    val equalizerBand3: Int = 0, // 3600Hz
+    val equalizerBand4: Int = 0, // 14000Hz
+    val equalizerBassCutMode: String = "OFF", // OFF, LIGHT, MEDIUM, STRONG, EXTREME
+    // Earphone Jack / DAC Anti-Noise Silence Keep-Alive (イヤホンジャック待機ノイズ・ポップ音防止の常時無音再生)
+    val antiNoiseSilenceEnabled: Boolean = true
 )
 
 data class PhysicalButtonEvent(

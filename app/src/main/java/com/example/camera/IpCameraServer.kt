@@ -50,7 +50,9 @@ class IpCameraServer(
     private val onTestChime: (ScheduledChime) -> Unit = {},
     private val onTestSound: (ChimeSound, Float) -> Unit = { _, _ -> },
     private val onTestCustomAudio: (filePath: String, volume: Float) -> Unit = { _, _ -> },
-    private val onPreviewVideo: (type: ChimeVideoSourceType, path: String?, name: String?, duration: Int) -> Unit = { _, _, _, _ -> },
+    private val onPreviewVideo: (type: ChimeVideoSourceType, path: String?, name: String?, duration: Int, displayLayer: com.example.model.VideoDisplayLayer) -> Unit = { _, _, _, _, _ -> },
+    private val onToggleVideoDisplayLayer: () -> Unit = {},
+    private val activeVideoProvider: () -> com.example.model.ActiveBackgroundVideo? = { null },
     private val onUploadAudio: (name: String, data: ByteArray) -> Unit = { _, _ -> },
     private val onUploadVideo: (name: String, data: ByteArray) -> Unit = { _, _ -> },
     private val onDeleteAudio: (String) -> Unit = {},
@@ -102,7 +104,17 @@ class IpCameraServer(
     private val onNextMusic: () -> Unit = { com.example.audio.MusicPlayerManager.next() },
     private val onPrevMusic: () -> Unit = { com.example.audio.MusicPlayerManager.previous() },
     private val onStopMusic: () -> Unit = { com.example.audio.MusicPlayerManager.stop() },
-    private val onSetMusicVolume: (Float) -> Unit = { com.example.audio.MusicPlayerManager.setVolume(it) }
+    private val onSetMusicVolume: (Float) -> Unit = { com.example.audio.MusicPlayerManager.setVolume(it) },
+    private val onSeekMusic: (Long) -> Unit = { com.example.audio.MusicPlayerManager.seekTo(it) },
+    private val onSetMusicRepeatMode: (com.example.audio.MusicRepeatMode) -> Unit = { com.example.audio.MusicPlayerManager.setRepeatMode(it) },
+    private val onVoiceCommand: (String) -> Unit = {},
+    private val equalizerStateProvider: () -> com.example.model.EqualizerState = { com.example.audio.AudioEqualizerManager.equalizerState.value },
+    private val onSetEqualizerEnabled: (Boolean) -> Unit = { com.example.audio.AudioEqualizerManager.setEqualizerEnabled(it) },
+    private val onSetEqualizerPreset: (com.example.model.EqualizerPreset) -> Unit = { com.example.audio.AudioEqualizerManager.setPreset(it) },
+    private val onSetEqualizerBassCutMode: (com.example.model.BassCutMode) -> Unit = { com.example.audio.AudioEqualizerManager.setBassCutMode(it) },
+    private val onSetEqualizerBandGain: (Int, Int) -> Unit = { idx, gain -> com.example.audio.AudioEqualizerManager.setBandGain(idx, gain) },
+    private val onResetEqualizer: () -> Unit = { com.example.audio.AudioEqualizerManager.resetToFlat() },
+    private val onSetAntiNoiseSilence: (Boolean) -> Unit = { if (it) com.example.audio.SilentAudioKeepAliveManager.start() else com.example.audio.SilentAudioKeepAliveManager.stop() }
 ) {
     companion object {
         private const val TAG = "IpCameraServer"
@@ -577,17 +589,27 @@ class IpCameraServer(
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
-                // API: Preview Video on Clock Screen
-                method == "POST" && path == "/api/video/preview" -> {
+                // API: Preview / Play Video on Clock Screen (Background or Foreground)
+                method == "POST" && (path == "/api/video/preview" || path == "/api/video/play") -> {
                     val bodyBytes = readExactBytes(rawIn, contentLength)
                     val bodyStr = String(bodyBytes, Charsets.UTF_8)
                     val obj = JSONObject(bodyStr)
-                    val videoTypeStr = obj.optString("videoSourceType", "NONE")
-                    val customPath = obj.optString("customVideoPath").ifEmpty { null }
-                    val customName = obj.optString("customVideoName").ifEmpty { null }
-                    val duration = obj.optInt("durationSeconds", 30)
-                    val type = try { ChimeVideoSourceType.valueOf(videoTypeStr) } catch (_: Exception) { ChimeVideoSourceType.NONE }
-                    onPreviewVideo(type, customPath, customName, duration)
+                    val videoTypeStr = obj.optString("videoSourceType", "CUSTOM_FILE")
+                    val customPath = obj.optString("customVideoPath").ifEmpty { obj.optString("filePath").ifEmpty { null } }
+                    val customName = obj.optString("customVideoName").ifEmpty { obj.optString("name").ifEmpty { null } }
+                    val duration = obj.optInt("durationSeconds", 60)
+                    val layerStr = obj.optString("displayLayer", "BACKGROUND")
+                    val layer = try { com.example.model.VideoDisplayLayer.valueOf(layerStr) } catch (_: Exception) { com.example.model.VideoDisplayLayer.BACKGROUND }
+                    val type = try { ChimeVideoSourceType.valueOf(videoTypeStr) } catch (_: Exception) {
+                        if (customPath != null) ChimeVideoSourceType.CUSTOM_FILE else ChimeVideoSourceType.NONE
+                    }
+                    onPreviewVideo(type, customPath, customName, duration, layer)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                // API: Toggle or Set Active Video Display Layer (Background vs Foreground)
+                method == "POST" && path == "/api/video/layer" -> {
+                    onToggleVideoDisplayLayer()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
@@ -797,6 +819,92 @@ class IpCameraServer(
                     val obj = JSONObject(bodyStr)
                     val vol = obj.optDouble("volume", 0.85).toFloat().coerceIn(0f, 1f)
                     onSetMusicVolume(vol)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/seek" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val pos = obj.optLong("positionMs", 0L)
+                    onSeekMusic(pos)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/repeat" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val modeStr = obj.optString("repeatMode", "ALL")
+                    val mode = try { com.example.audio.MusicRepeatMode.valueOf(modeStr) } catch (_: Exception) { com.example.audio.MusicRepeatMode.ALL }
+                    onSetMusicRepeatMode(mode)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                // API: Equalizer & Sound Quality Controls (User Requested)
+                method == "POST" && path == "/api/equalizer/enabled" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val en = obj.optBoolean("enabled", true)
+                    onSetEqualizerEnabled(en)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/equalizer/preset" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val pStr = obj.optString("preset", "FLAT")
+                    val p = try { com.example.model.EqualizerPreset.valueOf(pStr) } catch (_: Exception) { com.example.model.EqualizerPreset.FLAT }
+                    onSetEqualizerPreset(p)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/equalizer/basscut" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val bStr = obj.optString("mode", "OFF")
+                    val m = try { com.example.model.BassCutMode.valueOf(bStr) } catch (_: Exception) { com.example.model.BassCutMode.OFF }
+                    onSetEqualizerBassCutMode(m)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/equalizer/band" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val idx = obj.optInt("index", 0)
+                    val gain = obj.optInt("gain", 0)
+                    onSetEqualizerBandGain(idx, gain)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/equalizer/reset" -> {
+                    onResetEqualizer()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                // API: Anti-Noise Silence Keep-Alive Toggle (常時無音再生・イヤホンジャックノイズ防止)
+                method == "POST" && path == "/api/audio/anti_noise" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val en = obj.optBoolean("enabled", true)
+                    onSetAntiNoiseSilence(en)
+                    sendResponse(out, 200, "application/json", "{\"success\":true,\"enabled\":$en}".toByteArray())
+                }
+
+                // API: Send Voice / Assistant Command
+                method == "POST" && path == "/api/voice/command" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val cmd = obj.optString("command")
+                    if (cmd.isNotEmpty()) {
+                        onVoiceCommand(cmd)
+                    }
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
@@ -1322,6 +1430,11 @@ class IpCameraServer(
                 customVideoPath = obj.optString("customVideoPath").ifEmpty { null },
                 videoDurationSeconds = obj.optInt("videoDurationSeconds", 60),
                 playVideoAudio = if (isVideoSound) true else obj.optBoolean("playVideoAudio", false),
+                videoDisplayLayer = try {
+                    com.example.model.VideoDisplayLayer.valueOf(obj.optString("videoDisplayLayer", "BACKGROUND"))
+                } catch (_: Exception) {
+                    com.example.model.VideoDisplayLayer.BACKGROUND
+                },
                 irSendEnabled = obj.optBoolean("irSendEnabled", false),
                 irButtonId = obj.optString("irButtonId").ifEmpty { null },
                 irButtonName = obj.optString("irButtonName").ifEmpty { null }
@@ -1392,6 +1505,7 @@ class IpCameraServer(
                 put("customVideoPath", c.customVideoPath ?: "")
                 put("videoDurationSeconds", c.videoDurationSeconds)
                 put("playVideoAudio", c.playVideoAudio)
+                put("videoDisplayLayer", c.videoDisplayLayer.name)
                 put("irSendEnabled", c.irSendEnabled)
                 put("irButtonId", c.irButtonId ?: "")
                 put("irButtonName", c.irButtonName ?: "")
@@ -1498,6 +1612,31 @@ class IpCameraServer(
             put("repeatModeLabel", mpState.repeatMode.label)
         }
         root.put("musicPlayer", mpObj)
+
+        val eqState = equalizerStateProvider()
+        val eqObj = JSONObject().apply {
+            put("isEnabled", eqState.isEnabled)
+            put("currentPreset", eqState.currentPreset.id)
+            put("currentPresetName", eqState.currentPreset.displayName)
+            put("bassCutMode", eqState.bassCutMode.id)
+            put("bassCutModeName", eqState.bassCutMode.displayName)
+            val gainsArr = JSONArray()
+            eqState.bandGainsDb.forEach { gainsArr.put(it) }
+            put("bandGainsDb", gainsArr)
+            val effGainsArr = JSONArray()
+            eqState.getEffectiveBandGains().forEach { effGainsArr.put(it) }
+            put("effectiveBandGainsDb", effGainsArr)
+            val freqsArr = JSONArray()
+            eqState.centerFrequenciesHz.forEach { freqsArr.put(it) }
+            put("centerFrequenciesHz", freqsArr)
+        }
+        root.put("equalizer", eqObj)
+
+        val antiNoiseObj = JSONObject().apply {
+            put("enabled", p.antiNoiseSilenceEnabled)
+            put("isPlaying", com.example.audio.SilentAudioKeepAliveManager.isPlaying.value)
+        }
+        root.put("antiNoiseSilence", antiNoiseObj)
 
         // IR Buttons List
         val irArr = JSONArray()
@@ -2005,6 +2144,7 @@ class IpCameraServer(
             }
         }
 
+        ${WebDashboardMusic.getMusicCss()}
         ${WebDashboardIrEsp.getIrEspCss()}
     </style>
 </head>
@@ -2046,6 +2186,7 @@ class IpCameraServer(
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                 Media Files
             </button>
+            ${WebDashboardMusic.getMusicTabNavButtonHtml()}
             <button class="tab-btn" onclick="switchTab('clock', this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 Display & Theme
@@ -2723,6 +2864,7 @@ class IpCameraServer(
                 </div>
             </div>
         </div>
+        ${WebDashboardMusic.getMusicTabContentHtml()}
         ${WebDashboardIrEsp.getTabIrHtml()}
         ${WebDashboardIrEsp.getTabEspHtml()}
         ${WebDashboardUpdates.getTabUpdatesHtml()}
@@ -2807,7 +2949,7 @@ class IpCameraServer(
             </div>
 
             <div class="form-group">
-                <label class="form-label">Background Visual Effect</label>
+                <label class="form-label">Background / Video Visual Effect</label>
                 <div style="display:flex; gap: 8px;">
                     <select id="modalVideoSource" style="flex:1;">
                         <option value="NONE">None (Normal clock face)</option>
@@ -2822,6 +2964,17 @@ class IpCameraServer(
                         </optgroup>
                     </select>
                     <button type="button" class="btn btn-outline btn-sm" onclick="previewModalVideo()">Preview</button>
+                </div>
+            </div>
+
+            <div class="form-group" id="modalVideoDisplayLayerGroup">
+                <label class="form-label">動画・映像の表示位置 (Display Layer)</label>
+                <select id="modalVideoDisplayLayer" style="width:100%;">
+                    <option value="BACKGROUND" selected>時計の背景に表示 (Behind Clock - 数字の背後で再生)</option>
+                    <option value="FOREGROUND">時計の手前・最前面に表示 (In Front / Fullscreen - 全画面で再生)</option>
+                </select>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">
+                    ※「時計の手前（前面）」を選ぶと時計を覆うフルスクリーン動画として再生されます。画面タップで背景表示への切り替えも可能です。
                 </div>
             </div>
 
@@ -3028,6 +3181,10 @@ class IpCameraServer(
                 }
             }
 
+            if (typeof updateMusicPlayerUi === 'function') {
+                updateMusicPlayerUi(data);
+            }
+
             // Render Custom Audios
             var audios = data.customAudios || [];
             document.getElementById('audioCount').innerText = audios.length;
@@ -3089,10 +3246,12 @@ class IpCameraServer(
                             '</div>' +
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">' +
-                            '<button class="btn btn-outline btn-sm" onclick="openAddChimeWithVideo(\'' + v.id + '\', \'' + safeName + '\', \'' + safePath + '\')">Use in Schedule</button>' +
-                            '<button class="btn btn-outline btn-sm" onclick="previewCustomVideoOnDevice(\'' + safePath + '\', \'' + safeName + '\')">Play on Screen</button>' +
-                            '<button class="btn btn-outline btn-sm" onclick="dismissVideoOnDevice()">Stop</button>' +
-                            '<button class="btn btn-danger btn-sm" onclick="deleteMedia(\'' + v.id + '\', \'video\')">Delete</button>' +
+                            '<button class="btn btn-primary btn-sm" onclick="previewCustomVideoOnDevice(\'' + safePath + '\', \'' + safeName + '\', \'BACKGROUND\')">🌄 時計の背景で再生</button>' +
+                            '<button class="btn btn-primary btn-sm" style="background:#0284c7; border-color:#0284c7;" onclick="previewCustomVideoOnDevice(\'' + safePath + '\', \'' + safeName + '\', \'FOREGROUND\')">📺 前面全画面で再生</button>' +
+                            '<button class="btn btn-outline btn-sm" onclick="toggleVideoLayerOnDevice()">🔄 レイヤー切替</button>' +
+                            '<button class="btn btn-outline btn-sm" onclick="openAddChimeWithVideo(\'' + v.id + '\', \'' + safeName + '\', \'' + safePath + '\')">スケジュール作成</button>' +
+                            '<button class="btn btn-outline btn-sm" onclick="dismissVideoOnDevice()">⏹ 停止</button>' +
+                            '<button class="btn btn-danger btn-sm" onclick="deleteMedia(\'' + v.id + '\', \'video\')">削除</button>' +
                         '</div>' +
                     '</div>';
                 });
@@ -3401,8 +3560,9 @@ class IpCameraServer(
             }
         }
 
-        function previewCustomVideoOnDevice(path, name) {
+        function previewCustomVideoOnDevice(path, name, layer) {
             var decodedPath = decodeURIComponent(path);
+            var targetLayer = layer || 'BACKGROUND';
             fetch('/api/video/preview', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3410,10 +3570,19 @@ class IpCameraServer(
                     videoSourceType: 'CUSTOM_FILE',
                     customVideoPath: decodedPath,
                     customVideoName: name,
-                    durationSeconds: 30
+                    durationSeconds: -2,
+                    displayLayer: targetLayer
                 })
             });
-            showToast('Displaying visual preview on device (30s)...');
+            var layerText = (targetLayer === 'FOREGROUND') ? '前面全画面' : '時計の背景';
+            showToast('動画を【' + layerText + '】で再生中（停止するまで連続再生）');
+        }
+
+        function toggleVideoLayerOnDevice() {
+            fetch('/api/video/layer', { method: 'POST' })
+                .then(() => {
+                    showToast('動画表示レイヤー（背景 ⟷ 前面）を切り替えました');
+                });
         }
 
         function toggleChime(id) {
@@ -3772,6 +3941,8 @@ class IpCameraServer(
                 document.getElementById('modalVideoSource').value = 'NONE';
             }
 
+            document.getElementById('modalVideoDisplayLayer').value = 'BACKGROUND';
+
             document.getElementById('chimeModal').classList.add('active');
         }
 
@@ -3854,6 +4025,8 @@ class IpCameraServer(
                 document.getElementById('modalVideoSource').value = c.videoSourceType || 'NONE';
             }
 
+            document.getElementById('modalVideoDisplayLayer').value = c.videoDisplayLayer || 'BACKGROUND';
+
             document.getElementById('chimeModal').classList.add('active');
         }
 
@@ -3890,6 +4063,7 @@ class IpCameraServer(
         function previewModalVideo() {
             var val = document.getElementById('modalVideoSource').value;
             var durSel = document.getElementById('modalVideoDuration').value;
+            var layer = document.getElementById('modalVideoDisplayLayer').value || 'BACKGROUND';
             var dur = 30;
             if (durSel === '-1') dur = -1;
             else if (durSel === '-2') dur = -2;
@@ -3911,7 +4085,8 @@ class IpCameraServer(
                         videoSourceType: 'CUSTOM_FILE',
                         customVideoPath: path,
                         customVideoName: name,
-                        durationSeconds: dur
+                        durationSeconds: dur,
+                        displayLayer: layer
                     })
                 });
             } else {
@@ -3920,12 +4095,14 @@ class IpCameraServer(
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         videoSourceType: val,
-                        durationSeconds: dur
+                        durationSeconds: dur,
+                        displayLayer: layer
                     })
                 });
             }
             var durMsg = (dur === -1) ? 'full video' : (dur === -2) ? 'until stopped' : (dur + 's');
-            showToast('Displaying visual preview on device (' + durMsg + ')...');
+            var layerMsg = (layer === 'FOREGROUND') ? '【前面全画面】' : '【背景】';
+            showToast('Displaying visual ' + layerMsg + ' on device (' + durMsg + ')...');
         }
 
         function saveChimeFromModal() {
@@ -3934,6 +4111,7 @@ class IpCameraServer(
             var min = parseInt(document.getElementById('modalMinute').value) || 0;
             var label = document.getElementById('modalLabel').value || 'Routine Chime';
             var vol = parseFloat(document.getElementById('modalVolume').value) || 0.85;
+            var videoLayer = document.getElementById('modalVideoDisplayLayer').value || 'BACKGROUND';
             
             var durSel = document.getElementById('modalVideoDuration').value;
             var duration = 60;
@@ -4018,6 +4196,7 @@ class IpCameraServer(
                 customVideoName: customVideoName,
                 customVideoPath: customVideoPath,
                 videoDurationSeconds: duration,
+                videoDisplayLayer: videoLayer,
                 playVideoAudio: isVideoAudio,
                 irSendEnabled: irSend,
                 irButtonId: irBtnId,
@@ -4236,6 +4415,7 @@ class IpCameraServer(
             }
         };
 
+        ${WebDashboardMusic.getMusicJs()}
         ${WebDashboardIrEsp.getIrEspScript()}
         ${WebDashboardUpdates.getUpdatesScript()}
 

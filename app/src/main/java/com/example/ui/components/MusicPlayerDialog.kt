@@ -83,6 +83,15 @@ import com.example.model.ClockPreferencesState
 import com.example.model.CustomAudioItem
 import kotlin.math.roundToInt
 
+import com.example.model.EqualizerPreset
+import com.example.model.BassCutMode
+import com.example.audio.AudioEqualizerManager
+
+enum class MusicRightTab(val label: String) {
+    PLAYLIST("プレイリスト"),
+    EQUALIZER("音質・イコライザー")
+}
+
 @Composable
 fun MusicPlayerDialog(
     viewModel: ClockViewModel,
@@ -92,7 +101,10 @@ fun MusicPlayerDialog(
     val context = LocalContext.current
     val customAudioList by viewModel.customAudioList.collectAsState()
     val playerState by viewModel.musicPlayerState.collectAsState()
+    val eqState by viewModel.equalizerState.collectAsState()
+    val isSilencePlaying by viewModel.isSilenceKeepAlivePlaying.collectAsState()
     val accentColor = preferences.colorPalette.primary
+    var rightTab by remember { mutableStateOf(MusicRightTab.PLAYLIST) }
 
     // Audio file picker launcher
     val audioPickerLauncher = rememberLauncherForActivityResult(
@@ -478,11 +490,45 @@ fun MusicPlayerDialog(
                                         .fillMaxWidth()
                                         .height(30.dp)
                                 )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Quick Equalizer Status Link
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0x1800E5FF))
+                                        .clickable { rightTab = MusicRightTab.EQUALIZER }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Icon(
+                                            imageVector = Icons.Default.GraphicEq,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00E5FF),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = if (eqState.isEnabled) "EQ: ${eqState.currentPreset.displayName}" else "イコライザー: OFF",
+                                            fontSize = 11.sp,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    Text(
+                                        text = if (eqState.bassCutMode != BassCutMode.OFF) "低音カット: ${eqState.bassCutMode.displayName}" else "設定 >",
+                                        fontSize = 10.5.sp,
+                                        color = Color(0xFF00E5FF)
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // Right Column: Playlist / Songs List
+                    // Right Column: Playlist or Equalizer Panel
                     Card(
                         modifier = Modifier
                             .weight(1f)
@@ -494,162 +540,446 @@ fun MusicPlayerDialog(
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(16.dp)
+                                .padding(14.dp)
                         ) {
+                            // Tab Selector
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF0F131D))
+                                    .padding(3.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.QueueMusic,
-                                        contentDescription = null,
-                                        tint = accentColor,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "プレイリスト (${customAudioList.size}曲)",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                MusicRightTab.values().forEach { tab ->
+                                    val isSel = rightTab == tab
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSel) accentColor.copy(alpha = 0.22f) else Color.Transparent)
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isSel) accentColor.copy(alpha = 0.5f) else Color.Transparent,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { rightTab = tab }
+                                            .padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (tab == MusicRightTab.PLAYLIST) Icons.Default.QueueMusic else Icons.Default.GraphicEq,
+                                                contentDescription = null,
+                                                tint = if (isSel) accentColor else Color(0xFF94A3B8),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = if (tab == MusicRightTab.PLAYLIST) "楽曲 (${customAudioList.size})" else tab.label,
+                                                fontSize = 11.5.sp,
+                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isSel) Color.White else Color(0xFF94A3B8)
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            if (customAudioList.isEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Color(0x0AFFFFFF))
-                                        .padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            imageVector = Icons.Default.MusicNote,
-                                            contentDescription = null,
-                                            tint = Color(0xFF475569),
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "登録された楽曲がありません",
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF94A3B8)
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "上部の「曲を追加」またはWebダッシュボードからMP3/WAV等をアップロードしてください",
-                                            fontSize = 10.5.sp,
-                                            color = Color(0xFF64748B),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                        )
+                            if (rightTab == MusicRightTab.PLAYLIST) {
+                                if (customAudioList.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0x0AFFFFFF))
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                imageVector = Icons.Default.MusicNote,
+                                                contentDescription = null,
+                                                tint = Color(0xFF475569),
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "登録された楽曲がありません",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF94A3B8)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "上部の「曲を追加」またはWebダッシュボードからMP3/WAV等をアップロードしてください",
+                                                fontSize = 10.5.sp,
+                                                color = Color(0xFF64748B),
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        itemsIndexed(customAudioList) { index, track ->
+                                            val isCurrent = playerState.currentTrack?.id == track.id
+                                            val isCurrentlyPlaying = isCurrent && playerState.isPlaying
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(
+                                                        if (isCurrent) accentColor.copy(alpha = 0.18f) else Color(0x0EFFFFFF)
+                                                    )
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = if (isCurrent) accentColor.copy(alpha = 0.5f) else Color.Transparent,
+                                                        shape = RoundedCornerShape(10.dp)
+                                                    )
+                                                    .clickable {
+                                                        if (isCurrent) {
+                                                            viewModel.toggleMusicPlayPause()
+                                                        } else {
+                                                            viewModel.playMusic(track, customAudioList)
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(28.dp)
+                                                            .clip(CircleShape)
+                                                            .background(if (isCurrent) accentColor else Color(0x1FFFFFFF)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = when {
+                                                                isCurrentlyPlaying -> Icons.Default.GraphicEq
+                                                                isCurrent -> Icons.Default.PlayArrow
+                                                                else -> Icons.Default.MusicNote
+                                                            },
+                                                            contentDescription = null,
+                                                            tint = if (isCurrent) Color.Black else Color.White,
+                                                            modifier = Modifier.size(15.dp)
+                                                        )
+                                                    }
+
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = track.name,
+                                                            color = if (isCurrent) Color.White else Color(0xFFCBD5E1),
+                                                            fontSize = 12.5.sp,
+                                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        if (isCurrentlyPlaying) {
+                                                            Text(
+                                                                text = "再生中",
+                                                                fontSize = 10.sp,
+                                                                color = accentColor,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                // Quick Play/Pause Action
+                                                IconButton(
+                                                    onClick = {
+                                                        if (isCurrent) {
+                                                            viewModel.toggleMusicPlayPause()
+                                                        } else {
+                                                            viewModel.playMusic(track, customAudioList)
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(30.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (isCurrentlyPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                                        contentDescription = null,
+                                                        tint = if (isCurrent) accentColor else Color(0xFF94A3B8),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             } else {
+                                // EQUALIZER TAB CONTENT
                                 LazyColumn(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    itemsIndexed(customAudioList) { index, track ->
-                                        val isCurrent = playerState.currentTrack?.id == track.id
-                                        val isCurrentlyPlaying = isCurrent && playerState.isPlaying
-
+                                    // 1. Equalizer Master Toggle & Reset
+                                    item {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clip(RoundedCornerShape(10.dp))
-                                                .background(
-                                                    if (isCurrent) accentColor.copy(alpha = 0.18f) else Color(0x0EFFFFFF)
-                                                )
-                                                .border(
-                                                    width = 1.dp,
-                                                    color = if (isCurrent) accentColor.copy(alpha = 0.5f) else Color.Transparent,
-                                                    shape = RoundedCornerShape(10.dp)
-                                                )
-                                                .clickable {
-                                                    if (isCurrent) {
-                                                        viewModel.toggleMusicPlayPause()
-                                                    } else {
-                                                        viewModel.playMusic(track, customAudioList)
-                                                    }
+                                                .background(Color(0xFF0F131D))
+                                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text("イコライザー有効", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Button(
+                                                    onClick = { viewModel.resetEqualizerToFlat() },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
+                                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(28.dp),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text("リセット", fontSize = 10.sp, color = Color.White)
                                                 }
-                                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                                                androidx.compose.material3.Switch(
+                                                    checked = eqState.isEnabled,
+                                                    onCheckedChange = { viewModel.setEqualizerEnabled(it) },
+                                                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                                                        checkedThumbColor = Color.White,
+                                                        checkedTrackColor = Color(0xFF00E5FF)
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // 1.5 Earphone Jack Anti-Noise Keep-Alive (常時無音再生 / ノイズ防止)
+                                    item {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFF0F131D))
+                                                .border(1.dp, if (preferences.antiNoiseSilenceEnabled) Color(0x6600E5FF) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Row(
-                                                modifier = Modifier.weight(1f),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .clip(CircleShape)
-                                                        .background(if (isCurrent) accentColor else Color(0x1FFFFFFF)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = when {
-                                                            isCurrentlyPlaying -> Icons.Default.GraphicEq
-                                                            isCurrent -> Icons.Default.PlayArrow
-                                                            else -> Icons.Default.MusicNote
-                                                        },
-                                                        contentDescription = null,
-                                                        tint = if (isCurrent) Color.Black else Color.White,
-                                                        modifier = Modifier.size(15.dp)
+                                                Icon(
+                                                    imageVector = Icons.Default.VolumeMute,
+                                                    contentDescription = null,
+                                                    tint = if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Text("イヤホン・ノイズ防止（常時無音再生）", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                                        if (isSilencePlaying) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(4.dp))
+                                                                    .background(Color(0xFF00E5FF))
+                                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            ) {
+                                                                Text("出力中", fontSize = 9.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
+                                                    Text(
+                                                        "端子の待機ジー音や再生開始時のプチッ音を防止",
+                                                        fontSize = 9.5.sp,
+                                                        color = Color(0xFF94A3B8)
                                                     )
                                                 }
+                                            }
+                                            androidx.compose.material3.Switch(
+                                                checked = preferences.antiNoiseSilenceEnabled,
+                                                onCheckedChange = { viewModel.setAntiNoiseSilenceEnabled(it) },
+                                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                                    checkedThumbColor = Color.White,
+                                                    checkedTrackColor = Color(0xFF00E5FF)
+                                                )
+                                            )
+                                        }
+                                    }
 
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = track.name,
-                                                        color = if (isCurrent) Color.White else Color(0xFFCBD5E1),
-                                                        fontSize = 12.5.sp,
-                                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    if (isCurrentlyPlaying) {
+                                    // 2. Speaker Bass Cut Filter (Small speaker anti-rattling)
+                                    item {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFF0F131D))
+                                                .border(1.dp, Color(0x33FA541C), RoundedCornerShape(10.dp))
+                                                .padding(10.dp)
+                                        ) {
+                                            Text(
+                                                text = "🛡️ 低音カット・スピーカー保護フィルター",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFA541C)
+                                            )
+                                            Text(
+                                                text = "小型スピーカーの低音歪み・音割れ・ビビリを強力にカット",
+                                                fontSize = 9.5.sp,
+                                                color = Color(0xFF94A3B8)
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                BassCutMode.values().forEach { mode ->
+                                                    val isSel = eqState.bassCutMode == mode
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(if (isSel) Color(0xFFFA541C) else Color(0x14FFFFFF))
+                                                            .clickable { viewModel.setEqualizerBassCutMode(mode) }
+                                                            .padding(vertical = 5.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
                                                         Text(
-                                                            text = "再生中",
-                                                            fontSize = 10.sp,
-                                                            color = accentColor,
-                                                            fontWeight = FontWeight.Bold
+                                                            text = when (mode) {
+                                                                BassCutMode.OFF -> "OFF"
+                                                                BassCutMode.LIGHT -> "弱(-4dB)"
+                                                                BassCutMode.MEDIUM -> "中(-8dB)"
+                                                                BassCutMode.STRONG -> "強(-12dB)"
+                                                                BassCutMode.EXTREME -> "極(-16dB)"
+                                                            },
+                                                            fontSize = 9.5.sp,
+                                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (isSel) Color.White else Color(0xFFCCCCCC)
                                                         )
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
 
-                                            // Quick Play/Pause Action
-                                            IconButton(
-                                                onClick = {
-                                                    if (isCurrent) {
-                                                        viewModel.toggleMusicPlayPause()
-                                                    } else {
-                                                        viewModel.playMusic(track, customAudioList)
+                                    // 3. Presets
+                                    item {
+                                        Text("プリセット選択:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val presets = listOf(
+                                            EqualizerPreset.FLAT,
+                                            EqualizerPreset.BASS_REDUCE,
+                                            EqualizerPreset.BASS_CUT_LIGHT,
+                                            EqualizerPreset.VOCAL,
+                                            EqualizerPreset.TREBLE_BOOST,
+                                            EqualizerPreset.NIGHT_RELAX,
+                                            EqualizerPreset.POP,
+                                            EqualizerPreset.ROCK,
+                                            EqualizerPreset.CLASSICAL,
+                                            EqualizerPreset.BASS_BOOST
+                                        )
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            presets.chunked(3).forEach { rowPresets ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    rowPresets.forEach { p ->
+                                                        val isSel = eqState.currentPreset == p
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .clip(RoundedCornerShape(6.dp))
+                                                                .background(if (isSel) Color(0x3300E5FF) else Color(0x12FFFFFF))
+                                                                .border(
+                                                                    1.dp,
+                                                                    if (isSel) Color(0xFF00E5FF) else Color.Transparent,
+                                                                    RoundedCornerShape(6.dp)
+                                                                )
+                                                                .clickable { viewModel.setEqualizerPreset(p) }
+                                                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(
+                                                                text = p.displayName.split(" ")[0],
+                                                                fontSize = 9.5.sp,
+                                                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                                                color = if (isSel) Color(0xFF00E5FF) else Color.White,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
                                                     }
-                                                },
-                                                modifier = Modifier.size(30.dp)
+                                                    // Pad row if needed
+                                                    if (rowPresets.size < 3) {
+                                                        repeat(3 - rowPresets.size) {
+                                                            Spacer(modifier = Modifier.weight(1f))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 4. 5-Band Graphic Sliders
+                                    item {
+                                        Text("5バンド手動調整 (-15dB 〜 +15dB):", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+                                    }
+
+                                    itemsIndexed(listOf("低音(60Hz)", "低中音(230Hz)", "中音(910Hz)", "中高音(3.6kHz)", "高音(14kHz)")) { idx, label ->
+                                        val gain = eqState.bandGainsDb.getOrElse(idx) { 0 }
+                                        val effGain = eqState.getEffectiveBandGains().getOrElse(idx) { gain }
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color(0xFF0F131D))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(
-                                                    imageVector = if (isCurrentlyPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                                    contentDescription = null,
-                                                    tint = if (isCurrent) accentColor else Color(0xFF94A3B8),
-                                                    modifier = Modifier.size(18.dp)
+                                                Text(label, fontSize = 10.5.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                                Text(
+                                                    text = "${if (gain > 0) "+$gain" else "$gain"} dB ${if (effGain != gain) "(実効: ${effGain}dB)" else ""}",
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = if (gain > 0) Color(0xFF00E5FF) else if (gain < 0) Color(0xFFFA541C) else Color(0xFF94A3B8)
                                                 )
                                             }
+                                            Slider(
+                                                value = gain.toFloat(),
+                                                onValueChange = { newVal ->
+                                                    viewModel.setEqualizerBandGain(idx, newVal.toInt())
+                                                },
+                                                valueRange = -15f..15f,
+                                                steps = 29,
+                                                colors = SliderDefaults.colors(
+                                                    thumbColor = Color(0xFF00E5FF),
+                                                    activeTrackColor = Color(0xFF00E5FF),
+                                                    inactiveTrackColor = Color(0x33FFFFFF)
+                                                ),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(26.dp)
+                                            )
                                         }
                                     }
                                 }

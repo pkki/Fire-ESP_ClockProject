@@ -200,6 +200,9 @@ object ChimeSynthesizer {
 
                 staticTrack.write(samples, 0, samples.size)
                 staticTrack.setVolume(validVolume)
+                try {
+                    AudioEqualizerManager.registerAudioSession(staticTrack.audioSessionId)
+                } catch (_: Exception) {}
                 staticTrack.play()
 
                 val durationMs = (samples.size.toLong() * 1000L / SAMPLE_RATE) + 60L
@@ -207,8 +210,11 @@ object ChimeSynthesizer {
             } catch (_: Exception) {
             } finally {
                 try {
-                    staticTrack?.stop()
-                    staticTrack?.release()
+                    staticTrack?.let {
+                        AudioEqualizerManager.unregisterAudioSession(it.audioSessionId)
+                        it.stop()
+                        it.release()
+                    }
                 } catch (_: Exception) {}
             }
             return
@@ -241,6 +247,9 @@ object ChimeSynthesizer {
             .build()
 
         try {
+            try {
+                AudioEqualizerManager.registerAudioSession(audioTrack.audioSessionId)
+            } catch (_: Exception) {}
             audioTrack.setVolume(validVolume)
             audioTrack.play()
 
@@ -259,6 +268,7 @@ object ChimeSynthesizer {
         } catch (_: Exception) {
         } finally {
             try {
+                AudioEqualizerManager.unregisterAudioSession(audioTrack.audioSessionId)
                 audioTrack.stop()
                 audioTrack.release()
             } catch (_: Exception) {}

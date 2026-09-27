@@ -87,7 +87,24 @@ class ClockPreferencesManager(context: Context) {
             fireAlertVoiceTts = prefs.getBoolean("fire_alert_voice_tts", true),
             mq2SensitivityThreshold = prefs.getInt("mq2_sensitivity_threshold", 900),
             musicPlayerVolume = prefs.getFloat("music_player_volume", 0.85f),
-            musicPlayerRepeatMode = prefs.getString("music_player_repeat_mode", "ALL") ?: "ALL"
+            musicPlayerRepeatMode = prefs.getString("music_player_repeat_mode", "ALL") ?: "ALL",
+            defaultVideoDisplayLayer = prefs.getString("default_video_display_layer", "BACKGROUND") ?: "BACKGROUND",
+            voiceAssistantEnabled = prefs.getBoolean("voice_assistant_enabled", true),
+            wakeWordListeningEnabled = prefs.getBoolean("wake_word_listening_enabled", true),
+            wakeWordType = prefs.getString("wake_word_type", "OK_CLOCK") ?: "OK_CLOCK",
+            customWakeWord = prefs.getString("custom_wake_word", "クロック") ?: "クロック",
+            voiceTtsResponseEnabled = prefs.getBoolean("voice_tts_response_enabled", true),
+            voiceTtsPitch = prefs.getFloat("voice_tts_pitch", 1.0f),
+            voiceTtsSpeechRate = prefs.getFloat("voice_tts_speech_rate", 1.05f),
+            equalizerEnabled = prefs.getBoolean("equalizer_enabled", true),
+            equalizerPreset = prefs.getString("equalizer_preset", "FLAT") ?: "FLAT",
+            equalizerBand0 = prefs.getInt("equalizer_band_0", 0),
+            equalizerBand1 = prefs.getInt("equalizer_band_1", 0),
+            equalizerBand2 = prefs.getInt("equalizer_band_2", 0),
+            equalizerBand3 = prefs.getInt("equalizer_band_3", 0),
+            equalizerBand4 = prefs.getInt("equalizer_band_4", 0),
+            equalizerBassCutMode = prefs.getString("equalizer_bass_cut_mode", "OFF") ?: "OFF",
+            antiNoiseSilenceEnabled = prefs.getBoolean("anti_noise_silence_enabled", true)
         )
     }
 
@@ -126,6 +143,23 @@ class ClockPreferencesManager(context: Context) {
             .putInt("mq2_sensitivity_threshold", state.mq2SensitivityThreshold)
             .putFloat("music_player_volume", state.musicPlayerVolume)
             .putString("music_player_repeat_mode", state.musicPlayerRepeatMode)
+            .putString("default_video_display_layer", state.defaultVideoDisplayLayer)
+            .putBoolean("voice_assistant_enabled", state.voiceAssistantEnabled)
+            .putBoolean("wake_word_listening_enabled", state.wakeWordListeningEnabled)
+            .putString("wake_word_type", state.wakeWordType)
+            .putString("custom_wake_word", state.customWakeWord)
+            .putBoolean("voice_tts_response_enabled", state.voiceTtsResponseEnabled)
+            .putFloat("voice_tts_pitch", state.voiceTtsPitch)
+            .putFloat("voice_tts_speech_rate", state.voiceTtsSpeechRate)
+            .putBoolean("equalizer_enabled", state.equalizerEnabled)
+            .putString("equalizer_preset", state.equalizerPreset)
+            .putInt("equalizer_band_0", state.equalizerBand0)
+            .putInt("equalizer_band_1", state.equalizerBand1)
+            .putInt("equalizer_band_2", state.equalizerBand2)
+            .putInt("equalizer_band_3", state.equalizerBand3)
+            .putInt("equalizer_band_4", state.equalizerBand4)
+            .putString("equalizer_bass_cut_mode", state.equalizerBassCutMode)
+            .putBoolean("anti_noise_silence_enabled", state.antiNoiseSilenceEnabled)
             .apply()
         _state.value = state
     }
@@ -790,5 +824,110 @@ class ClockPreferencesManager(context: Context) {
             .putBoolean("ipcam_show_mini", config.showMiniPreviewOnClock)
             .apply()
         _ipCameraConfig.value = config
+    }
+
+    // --- Voice Assistant & Wake Word Preferences ---
+
+    fun updateVoiceAssistantEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("voice_assistant_enabled", enabled).apply()
+        _state.value = _state.value.copy(voiceAssistantEnabled = enabled)
+    }
+
+    fun updateWakeWordListeningEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("wake_word_listening_enabled", enabled).apply()
+        _state.value = _state.value.copy(wakeWordListeningEnabled = enabled)
+    }
+
+    fun updateWakeWordType(type: String) {
+        prefs.edit().putString("wake_word_type", type).apply()
+        _state.value = _state.value.copy(wakeWordType = type)
+    }
+
+    fun updateCustomWakeWord(word: String) {
+        prefs.edit().putString("custom_wake_word", word).apply()
+        _state.value = _state.value.copy(customWakeWord = word)
+    }
+
+    fun updateVoiceTtsResponseEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("voice_tts_response_enabled", enabled).apply()
+        _state.value = _state.value.copy(voiceTtsResponseEnabled = enabled)
+    }
+
+    fun updateVoiceTtsPitch(pitch: Float) {
+        prefs.edit().putFloat("voice_tts_pitch", pitch).apply()
+        _state.value = _state.value.copy(voiceTtsPitch = pitch)
+    }
+
+    fun updateVoiceTtsSpeechRate(rate: Float) {
+        prefs.edit().putFloat("voice_tts_speech_rate", rate).apply()
+        _state.value = _state.value.copy(voiceTtsSpeechRate = rate)
+    }
+
+    // --- Master Equalizer Preferences ---
+
+    fun updateEqualizerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("equalizer_enabled", enabled).apply()
+        _state.value = _state.value.copy(equalizerEnabled = enabled)
+    }
+
+    fun updateEqualizerPreset(preset: String, bands: List<Int>, bassCutMode: String) {
+        val editor = prefs.edit()
+            .putString("equalizer_preset", preset)
+            .putString("equalizer_bass_cut_mode", bassCutMode)
+        if (bands.size >= 5) {
+            editor.putInt("equalizer_band_0", bands[0])
+                .putInt("equalizer_band_1", bands[1])
+                .putInt("equalizer_band_2", bands[2])
+                .putInt("equalizer_band_3", bands[3])
+                .putInt("equalizer_band_4", bands[4])
+        }
+        editor.apply()
+        _state.value = _state.value.copy(
+            equalizerPreset = preset,
+            equalizerBassCutMode = bassCutMode,
+            equalizerBand0 = bands.getOrElse(0) { _state.value.equalizerBand0 },
+            equalizerBand1 = bands.getOrElse(1) { _state.value.equalizerBand1 },
+            equalizerBand2 = bands.getOrElse(2) { _state.value.equalizerBand2 },
+            equalizerBand3 = bands.getOrElse(3) { _state.value.equalizerBand3 },
+            equalizerBand4 = bands.getOrElse(4) { _state.value.equalizerBand4 }
+        )
+    }
+
+    fun updateEqualizerBand(bandIndex: Int, gainDb: Int) {
+        val editor = prefs.edit().putString("equalizer_preset", "CUSTOM")
+        when (bandIndex) {
+            0 -> {
+                editor.putInt("equalizer_band_0", gainDb)
+                _state.value = _state.value.copy(equalizerPreset = "CUSTOM", equalizerBand0 = gainDb)
+            }
+            1 -> {
+                editor.putInt("equalizer_band_1", gainDb)
+                _state.value = _state.value.copy(equalizerPreset = "CUSTOM", equalizerBand1 = gainDb)
+            }
+            2 -> {
+                editor.putInt("equalizer_band_2", gainDb)
+                _state.value = _state.value.copy(equalizerPreset = "CUSTOM", equalizerBand2 = gainDb)
+            }
+            3 -> {
+                editor.putInt("equalizer_band_3", gainDb)
+                _state.value = _state.value.copy(equalizerPreset = "CUSTOM", equalizerBand3 = gainDb)
+            }
+            4 -> {
+                editor.putInt("equalizer_band_4", gainDb)
+                _state.value = _state.value.copy(equalizerPreset = "CUSTOM", equalizerBand4 = gainDb)
+            }
+        }
+        editor.apply()
+    }
+
+    fun updateEqualizerBassCutMode(mode: String) {
+        prefs.edit().putString("equalizer_bass_cut_mode", mode).apply()
+        _state.value = _state.value.copy(equalizerBassCutMode = mode)
+    }
+
+    // --- Earphone Jack Anti-Noise Keep-Alive Silence Preferences ---
+    fun updateAntiNoiseSilenceEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("anti_noise_silence_enabled", enabled).apply()
+        _state.value = _state.value.copy(antiNoiseSilenceEnabled = enabled)
     }
 }

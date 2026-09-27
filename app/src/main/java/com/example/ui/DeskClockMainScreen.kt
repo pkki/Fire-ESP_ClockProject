@@ -1,10 +1,14 @@
 package com.example.ui
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -54,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ClockViewModel
 import com.example.model.ClockFace
 import com.example.model.IrRemoteButton
+import com.example.model.VideoDisplayLayer
 import com.example.model.WarningSeverity
 import com.example.ui.clockfaces.DigitalStationClockView
 import com.example.ui.clockfaces.MatrixDotsClockView
@@ -73,6 +78,7 @@ import com.example.ui.components.DeskTimerDialog
 import com.example.ui.components.EewFullScreenOverlay
 import com.example.ui.components.EspSensorBottomBar
 import com.example.ui.components.FireAlertOverlay
+import com.example.ui.components.ForegroundVideoOverlay
 import com.example.ui.components.IrQuickControlsSheet
 import com.example.ui.components.MediaPlaybackHudBanner
 import com.example.ui.components.MusicPlayerDialog
@@ -80,6 +86,7 @@ import com.example.ui.components.PhysicalButtonHudBanner
 import com.example.ui.components.SettingsTab
 import com.example.ui.components.TopControlBar
 import com.example.ui.components.UnifiedSettingsDialog
+import com.example.ui.components.VoiceAssistantOverlay
 import com.example.ui.components.WeatherBadge
 import com.example.ui.components.WeatherDetailDialog
 import com.example.ui.components.WeatherWarningBanner
@@ -123,6 +130,16 @@ fun DeskClockMainScreen(
     val isFireAlertRinging by viewModel.isFireAlertRinging.collectAsState()
     val fireAlertDetails by viewModel.fireAlertDetails.collectAsState()
     val lastPhysicalButtonEvent by viewModel.lastPhysicalButtonEvent.collectAsState()
+
+    // Voice Assistant state
+    val voiceAssistantState by viewModel.voiceAssistantState.collectAsState()
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.startVoiceAssistantActiveListening()
+        }
+    }
 
     // Weather Detail Dialog state
     var showWeatherDetailDialog by remember { mutableStateOf(false) }
@@ -176,11 +193,13 @@ fun DeskClockMainScreen(
                 } else Modifier
             )
     ) {
-        // 0. Active Background Video Layer (Rendered when chime triggers or during video preview)
-        BackgroundVideoLayer(
-            activeVideo = activeBackgroundVideo,
-            onDismiss = { viewModel.dismissBackgroundVideo() }
-        )
+        // 0. Active Background Video Layer (Rendered behind clock digits when displayLayer is BACKGROUND)
+        if (activeBackgroundVideo?.displayLayer != VideoDisplayLayer.FOREGROUND) {
+            BackgroundVideoLayer(
+                activeVideo = activeBackgroundVideo,
+                onDismiss = { viewModel.dismissBackgroundVideo() }
+            )
+        }
 
         // 1. Burn-in prevention container (subtle 1-2 pixel drift)
         Box(
@@ -363,6 +382,7 @@ fun DeskClockMainScreen(
                     timerSeconds = timerState.remainingSeconds,
                     isEspConnected = espSensorData.isConnected,
                     isMusicPlaying = musicPlayerState.isPlaying,
+                    isVoiceListening = voiceAssistantState.isActivelyListening || voiceAssistantState.isSpeaking,
                     onOpenSettings = { tab ->
                         currentSettingsTab = tab
                         showSettingsDialog = true
@@ -370,6 +390,13 @@ fun DeskClockMainScreen(
                     onOpenTimer = { showTimerDialog = true },
                     onOpenMusicPlayer = { showMusicPlayerDialog = true },
                     onOpenIrRemote = { showIrQuickSheet = true },
+                    onTriggerVoiceAssistant = {
+                        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            viewModel.startVoiceAssistantActiveListening()
+                        } else {
+                            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
                     onToggleNightMode = {
                         val willBeNight = !preferences.isNightMode
                         viewModel.toggleNightMode()
@@ -464,7 +491,8 @@ fun DeskClockMainScreen(
                 accentColor = preferences.colorPalette.primary,
                 onDismissVideo = { viewModel.dismissBackgroundVideo() },
                 onDismissAudio = { viewModel.stopAudioPlayback() },
-                onOpenMusicPlayer = { showMusicPlayerDialog = true }
+                onOpenMusicPlayer = { showMusicPlayerDialog = true },
+                onToggleVideoDisplayLayer = { viewModel.toggleActiveVideoDisplayLayer() }
             )
 
             if (preferences.showEspSensorOnClock && !preferences.isNightMode) {
@@ -592,6 +620,23 @@ fun DeskClockMainScreen(
                 }
             )
         }
+
+        // 8.7 Foreground Video Full-Screen Overlay (When displayLayer is FOREGROUND)
+        if (activeBackgroundVideo?.displayLayer == VideoDisplayLayer.FOREGROUND) {
+            ForegroundVideoOverlay(
+                activeVideo = activeBackgroundVideo,
+                onDismiss = { viewModel.dismissBackgroundVideo() },
+                onToggleDisplayLayer = { viewModel.toggleActiveVideoDisplayLayer() }
+            )
+        }
+
+        // 8.8 Ultra-lightweight Voice Assistant Floating Overlay (OK Google / OK クロック)
+        VoiceAssistantOverlay(
+            state = voiceAssistantState,
+            onDismiss = { viewModel.stopVoiceAssistant() },
+            onSendTextCommand = { viewModel.processVoiceCommandText(it) },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
 
         // 9. Emergency Earthquake Warning (EEW) Full-screen Live Map Overlay
         EewFullScreenOverlay(

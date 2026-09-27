@@ -148,6 +148,10 @@ object MusicPlayerManager {
                 setOnPreparedListener { mp ->
                     try {
                         val duration = mp.duration.toLong().coerceAtLeast(0L)
+                        val sessionId = mp.audioSessionId
+                        if (sessionId > 0) {
+                            AudioEqualizerManager.registerAudioSession(sessionId)
+                        }
                         mp.start()
                         _playerState.value = _playerState.value.copy(
                             isPlaying = true,
@@ -247,6 +251,10 @@ object MusicPlayerManager {
         stopProgressTicker()
         try {
             mediaPlayer?.let { mp ->
+                val sessionId = try { mp.audioSessionId } catch (_: Exception) { 0 }
+                if (sessionId > 0) {
+                    AudioEqualizerManager.unregisterAudioSession(sessionId)
+                }
                 if (mp.isPlaying) {
                     mp.stop()
                 }

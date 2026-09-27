@@ -60,6 +60,10 @@ object ChimeAudioPlayer {
                 }
                 setVolume(volume, volume)
                 setOnCompletionListener {
+                    val sessionId = try { it.audioSessionId } catch (_: Exception) { 0 }
+                    if (sessionId > 0) {
+                        AudioEqualizerManager.unregisterAudioSession(sessionId)
+                    }
                     it.release()
                     mediaPlayer = null
                     isPlayingCustom = false
@@ -67,6 +71,10 @@ object ChimeAudioPlayer {
                 }
                 setOnErrorListener { mp, what, extra ->
                     android.util.Log.e("ChimeAudioPlayer", "MediaPlayer error: what=$what, extra=$extra")
+                    val sessionId = try { mp.audioSessionId } catch (_: Exception) { 0 }
+                    if (sessionId > 0) {
+                        AudioEqualizerManager.unregisterAudioSession(sessionId)
+                    }
                     mp.release()
                     mediaPlayer = null
                     isPlayingCustom = false
@@ -74,6 +82,10 @@ object ChimeAudioPlayer {
                     true
                 }
                 setOnPreparedListener { mp ->
+                    val sessionId = mp.audioSessionId
+                    if (sessionId > 0) {
+                        AudioEqualizerManager.registerAudioSession(sessionId)
+                    }
                     mp.start()
                     isPlayingCustom = true
                 }
@@ -90,13 +102,17 @@ object ChimeAudioPlayer {
 
     fun stop() {
         try {
-            if (mediaPlayer != null) {
-                if (mediaPlayer?.isPlaying == true) {
-                    mediaPlayer?.stop()
+            mediaPlayer?.let { mp ->
+                val sessionId = try { mp.audioSessionId } catch (_: Exception) { 0 }
+                if (sessionId > 0) {
+                    AudioEqualizerManager.unregisterAudioSession(sessionId)
                 }
-                mediaPlayer?.release()
-                mediaPlayer = null
+                if (mp.isPlaying) {
+                    mp.stop()
+                }
+                mp.release()
             }
+            mediaPlayer = null
         } catch (_: Exception) {}
         isPlayingCustom = false
     }

@@ -148,6 +148,9 @@ class MainActivity : ComponentActivity() {
         }
         viewModel.resumeIpCamera()
         viewModel.retryEspSensorConnection()
+        if (viewModel.preferences.value.antiNoiseSilenceEnabled) {
+            com.example.audio.SilentAudioKeepAliveManager.start()
+        }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

@@ -40,6 +40,7 @@ import com.example.model.IrRemoteButton
 import com.example.model.ActiveBackgroundVideo
 import com.example.model.ChimeAudioSourceType
 import com.example.model.ChimeVideoSourceType
+import com.example.model.VideoDisplayLayer
 import com.example.model.ClockFace
 import com.example.model.ClockPreferencesState
 import com.example.model.ColorPalette
@@ -52,6 +53,16 @@ import com.example.model.FireAlertInfo
 import com.example.model.PhysicalButtonEvent
 import com.example.model.ScheduledChime
 import com.example.model.WeatherState
+import com.example.model.VoiceAssistantState
+import com.example.model.WakeWordOption
+import com.example.model.EqualizerPreset
+import com.example.model.BassCutMode
+import com.example.model.EqualizerState
+import com.example.audio.AudioEqualizerManager
+import com.example.audio.SilentAudioKeepAliveManager
+import com.example.voice.VoiceAssistantManager
+import com.example.voice.VoiceCommandCallbacks
+import com.example.voice.VoiceCommandProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -158,6 +169,12 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     // --- Dedicated Music Player State ---
     val musicPlayerState: StateFlow<MusicPlayerState> = MusicPlayerManager.playerState
 
+    // --- Master Equalizer & Bass Protection State ---
+    val equalizerState: StateFlow<EqualizerState> = AudioEqualizerManager.equalizerState
+
+    // --- Earphone Jack Anti-Noise Keep-Alive Silence State ---
+    val isSilenceKeepAlivePlaying: StateFlow<Boolean> = SilentAudioKeepAliveManager.isPlaying
+
     private val audioManager by lazy {
         getApplication<Application>().getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
     }
@@ -215,6 +232,156 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     )
     val irButtons: StateFlow<List<IrRemoteButton>> = irRemoteManager.buttons
     val irLearnState: StateFlow<IrLearnState> = irRemoteManager.learnState
+
+    // --- Ultra-lightweight Voice Assistant & Wake Word Engine ---
+    val voiceAssistantManager by lazy {
+        VoiceAssistantManager(
+            context = application,
+            commandCallbacks = object : VoiceCommandCallbacks {
+                override fun getCurrentTimeText(): String {
+                    val s = timeState.value
+                    val ampm = if (s.hour24 < 12) "午前" else "午後"
+                    val h12 = if (s.hour24 % 12 == 0) 12 else s.hour24 % 12
+                    return "$ampm ${h12}時${s.minute}分"
+                }
+
+                override fun getCurrentDateText(): String {
+                    val s = timeState.value
+                    return "${s.year}年${s.month}月${s.day}日 ${s.dayOfWeekJa}"
+                }
+
+                override fun getWeatherSummary(): String {
+                    val w = weatherState.value
+                    val p = preferences.value.selectedPrefecture
+                    return "${p}の天気は${w.conditionText}、現在の気温は${w.temperatureCelsius}度、予想最高気温は${w.highTemp}度、最低気温は${w.lowTemp}度です。"
+                }
+
+                override fun playMusic() {
+                    val currentList = customAudioList.value
+                    if (currentList.isNotEmpty()) {
+                        MusicPlayerManager.playTrack(currentList.first())
+                    } else {
+                        testChimeSound(ChimeSound.WESTMINSTER, preferences.value.chimeVolume)
+                    }
+                }
+
+                override fun pauseMusic() {
+                    MusicPlayerManager.togglePlayPause()
+                }
+
+                override fun nextMusic() {
+                    MusicPlayerManager.next()
+                }
+
+                override fun prevMusic() {
+                    MusicPlayerManager.previous()
+                }
+
+                override fun setVolume(volume: Float) {
+                    setChimeVolume(volume)
+                    MusicPlayerManager.setVolume(volume)
+                }
+
+                override fun adjustVolume(delta: Float) {
+                    val newVol = (preferences.value.chimeVolume + delta).coerceIn(0f, 1f)
+                    setChimeVolume(newVol)
+                    MusicPlayerManager.setVolume(newVol)
+                }
+
+                override fun playVideo(
+                    videoType: ChimeVideoSourceType,
+                    customPath: String?,
+                    customName: String?,
+                    layer: VideoDisplayLayer
+                ) {
+                    val path = customPath ?: customVideoList.value.firstOrNull()?.filePath
+                    val name = customName ?: customVideoList.value.firstOrNull()?.name
+                    previewBackgroundVideo(
+                        videoSourceType = videoType,
+                        customVideoPath = path,
+                        customVideoName = name,
+                        playVideoAudio = true,
+                        durationSeconds = ScheduledChime.DURATION_MANUAL_STOP,
+                        displayLayer = layer
+                    )
+                }
+
+                override fun stopVideo() {
+                    dismissBackgroundVideo()
+                }
+
+                override fun toggleVideoLayer() {
+                    toggleActiveVideoDisplayLayer()
+                }
+
+                override fun startTimer(seconds: Int) {
+                    setTimerSeconds(seconds)
+                }
+
+                override fun stopAlarm() {
+                    this@ClockViewModel.stopAlarm()
+                }
+
+                override fun toggleNightMode() {
+                    this@ClockViewModel.toggleNightMode()
+                }
+
+                override fun setNightMode(enabled: Boolean) {
+                    if (preferences.value.isNightMode != enabled) {
+                        this@ClockViewModel.toggleNightMode()
+                    }
+                }
+
+                override fun cycleColorTheme() {
+                    val palettes = ColorPalette.entries
+                    val currentIndex = palettes.indexOf(preferences.value.colorPalette)
+                    val nextIndex = (currentIndex + 1) % palettes.size
+                    selectColorPalette(palettes[nextIndex])
+                }
+
+                override fun triggerIrButton(buttonNameOrId: String): Boolean {
+                    val btn = irButtons.value.find {
+                        it.id == buttonNameOrId || it.name.equals(buttonNameOrId, ignoreCase = true) || buttonNameOrId.contains(it.name, ignoreCase = true)
+                    } ?: return false
+                    return sendIrButton(btn)
+                }
+
+                override fun getRegisteredIrButtons(): List<String> {
+                    return irButtons.value.map { it.name }
+                }
+
+                override fun triggerEewTest() {
+                    triggerTestEewScenario(EewTestScenario.HYUGANADA_M71)
+                }
+
+                override fun setEqualizerPreset(preset: EqualizerPreset) {
+                    this@ClockViewModel.setEqualizerPreset(preset)
+                }
+
+                override fun setBassCutMode(mode: BassCutMode) {
+                    this@ClockViewModel.setEqualizerBassCutMode(mode)
+                }
+
+                override fun resetEqualizer() {
+                    this@ClockViewModel.resetEqualizerToFlat()
+                }
+
+                override fun setAntiNoiseSilence(enabled: Boolean) {
+                    this@ClockViewModel.setAntiNoiseSilenceEnabled(enabled)
+                }
+            }
+        ).apply {
+            val pref = preferences.value
+            isEnabled = pref.voiceAssistantEnabled
+            isWakeWordListeningEnabled = pref.wakeWordListeningEnabled
+            wakeWordType = pref.wakeWordType
+            customWakeWord = pref.customWakeWord
+            isTtsVoiceEnabled = pref.voiceTtsResponseEnabled
+            ttsPitch = pref.voiceTtsPitch
+            ttsSpeechRate = pref.voiceTtsSpeechRate
+        }
+    }
+    val voiceAssistantState: StateFlow<VoiceAssistantState> get() = voiceAssistantManager.assistantState
 
     init {
         startTimeTicker()
@@ -318,6 +485,108 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 _playingAudioPath.value = null
             }
         }
+
+        // Initialize Master Equalizer from saved preferences
+        AudioEqualizerManager.initFromPreferences(
+            enabled = preferences.value.equalizerEnabled,
+            presetName = preferences.value.equalizerPreset,
+            bands = listOf(
+                preferences.value.equalizerBand0,
+                preferences.value.equalizerBand1,
+                preferences.value.equalizerBand2,
+                preferences.value.equalizerBand3,
+                preferences.value.equalizerBand4
+            ),
+            bassCutName = preferences.value.equalizerBassCutMode
+        )
+        AudioEqualizerManager.onStateChanged = { eqState ->
+            prefsManager.updateEqualizerPreset(
+                preset = eqState.currentPreset.id,
+                bands = eqState.bandGainsDb,
+                bassCutMode = eqState.bassCutMode.id
+            )
+        }
+
+        // Initialize Earphone Jack Anti-Noise Keep-Alive Silence Track
+        if (preferences.value.antiNoiseSilenceEnabled) {
+            SilentAudioKeepAliveManager.start()
+        }
+
+        // Sync Voice Assistant settings & start wake-word listening if enabled
+        viewModelScope.launch {
+            preferences.collect { pref ->
+                voiceAssistantManager.apply {
+                    isEnabled = pref.voiceAssistantEnabled
+                    isWakeWordListeningEnabled = pref.wakeWordListeningEnabled
+                    wakeWordType = pref.wakeWordType
+                    customWakeWord = pref.customWakeWord
+                    isTtsVoiceEnabled = pref.voiceTtsResponseEnabled
+                    ttsPitch = pref.voiceTtsPitch
+                    ttsSpeechRate = pref.voiceTtsSpeechRate
+                    if (pref.voiceAssistantEnabled && pref.wakeWordListeningEnabled) {
+                        startWakeWordListening()
+                    } else {
+                        stopAssistant()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Master Equalizer & Bass Protection Controls ---
+    fun setEqualizerEnabled(enabled: Boolean) {
+        AudioEqualizerManager.setEqualizerEnabled(enabled)
+        prefsManager.updateEqualizerEnabled(enabled)
+    }
+
+    fun setEqualizerPreset(preset: EqualizerPreset) {
+        AudioEqualizerManager.setPreset(preset)
+        prefsManager.updateEqualizerPreset(
+            preset = preset.id,
+            bands = preset.bandGainsDb,
+            bassCutMode = preset.bassCutMode.id
+        )
+    }
+
+    fun setEqualizerBandGain(bandIndex: Int, gainDb: Int) {
+        AudioEqualizerManager.setBandGain(bandIndex, gainDb)
+        prefsManager.updateEqualizerBand(bandIndex, gainDb)
+    }
+
+    fun setEqualizerBassCutMode(mode: BassCutMode) {
+        AudioEqualizerManager.setBassCutMode(mode)
+        prefsManager.updateEqualizerBassCutMode(mode.id)
+    }
+
+    fun resetEqualizerToFlat() {
+        setEqualizerPreset(EqualizerPreset.FLAT)
+    }
+
+    // --- Earphone Jack Anti-Noise Keep-Alive Silence Controls ---
+    fun setAntiNoiseSilenceEnabled(enabled: Boolean) {
+        prefsManager.updateAntiNoiseSilenceEnabled(enabled)
+        if (enabled) {
+            SilentAudioKeepAliveManager.start()
+        } else {
+            SilentAudioKeepAliveManager.stop()
+        }
+    }
+
+    fun toggleAntiNoiseSilence() {
+        setAntiNoiseSilenceEnabled(!preferences.value.antiNoiseSilenceEnabled)
+    }
+
+    // Voice Assistant controls
+    fun startVoiceAssistantActiveListening() {
+        voiceAssistantManager.startActiveListeningPrompt()
+    }
+
+    fun stopVoiceAssistant() {
+        voiceAssistantManager.stopAssistant()
+    }
+
+    fun processVoiceCommandText(text: String) {
+        voiceAssistantManager.processTextCommand(text)
     }
 
     fun refreshEspSensor() {
@@ -777,15 +1046,18 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                         onTestChime = { chime -> testPlayScheduledChime(chime) },
                         onTestSound = { sound, vol -> testChimeSound(sound, vol) },
                         onTestCustomAudio = { path, vol -> testPlayCustomAudio(path, vol) },
-                        onPreviewVideo = { type, path, name, dur ->
+                        onPreviewVideo = { type, path, name, dur, layer ->
                             previewBackgroundVideo(
                                 videoSourceType = type,
                                 customVideoPath = path,
                                 customVideoName = name,
                                 playVideoAudio = true,
-                                durationSeconds = dur
+                                durationSeconds = dur,
+                                displayLayer = layer
                             )
                         },
+                        onToggleVideoDisplayLayer = { toggleActiveVideoDisplayLayer() },
+                        activeVideoProvider = { activeBackgroundVideo.value },
                         onUploadAudio = { name, bytes ->
                             viewModelScope.launch {
                                 val item = CustomAudioFileManager.saveAudioBytes(getApplication(), name, bytes)
@@ -864,7 +1136,17 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                         onNextMusic = { nextMusicTrack() },
                         onPrevMusic = { previousMusicTrack() },
                         onStopMusic = { stopMusic() },
-                        onSetMusicVolume = { vol -> setMusicPlayerVolume(vol) }
+                        onSetMusicVolume = { vol -> setMusicPlayerVolume(vol) },
+                        onSeekMusic = { pos -> seekMusicTo(pos) },
+                        onSetMusicRepeatMode = { mode -> setMusicRepeatMode(mode) },
+                        onVoiceCommand = { voiceAssistantManager.processTextCommand(it) },
+                        equalizerStateProvider = { equalizerState.value },
+                        onSetEqualizerEnabled = { setEqualizerEnabled(it) },
+                        onSetEqualizerPreset = { setEqualizerPreset(it) },
+                        onSetEqualizerBassCutMode = { setEqualizerBassCutMode(it) },
+                        onSetEqualizerBandGain = { idx, gain -> setEqualizerBandGain(idx, gain) },
+                        onResetEqualizer = { resetEqualizerToFlat() },
+                        onSetAntiNoiseSilence = { setAntiNoiseSilenceEnabled(it) }
                     )
 
                     val started = server.start()
@@ -985,6 +1267,9 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        try {
+            SilentAudioKeepAliveManager.stop()
+        } catch (_: Exception) {}
         espSensorManager.stop()
         stopIpCameraService()
         eewManager.stop()
@@ -1318,6 +1603,13 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     // Preference mutations
     fun selectClockFace(face: ClockFace) = prefsManager.updateClockFace(face)
     fun selectColorPalette(palette: ColorPalette) = prefsManager.updateColorPalette(palette)
+    fun updateVoiceAssistantEnabled(enabled: Boolean) = prefsManager.updateVoiceAssistantEnabled(enabled)
+    fun updateWakeWordListeningEnabled(enabled: Boolean) = prefsManager.updateWakeWordListeningEnabled(enabled)
+    fun updateWakeWordType(type: String) = prefsManager.updateWakeWordType(type)
+    fun updateCustomWakeWord(word: String) = prefsManager.updateCustomWakeWord(word)
+    fun updateVoiceTtsResponseEnabled(enabled: Boolean) = prefsManager.updateVoiceTtsResponseEnabled(enabled)
+    fun updateVoiceTtsPitch(pitch: Float) = prefsManager.updateVoiceTtsPitch(pitch)
+    fun updateVoiceTtsSpeechRate(rate: Float) = prefsManager.updateVoiceTtsSpeechRate(rate)
     fun toggle24Hour() = prefsManager.toggle24Hour()
     fun toggleShowSeconds() = prefsManager.toggleShowSeconds()
     fun toggleShowWeather() = prefsManager.toggleShowWeather()
@@ -1775,7 +2067,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // --- Background Video Control & Management ---
+    // --- Video Playback & Background/Foreground Layer Management ---
 
     fun triggerBackgroundVideo(chime: ScheduledChime) {
         videoDismissJob?.cancel()
@@ -1792,7 +2084,8 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             playVideoAudio = shouldPlayAudio,
             volume = chime.volume,
             startTimeMs = System.currentTimeMillis(),
-            durationSeconds = chime.videoDurationSeconds
+            durationSeconds = chime.videoDurationSeconds,
+            displayLayer = chime.videoDisplayLayer
         )
 
         // Auto dismiss:
@@ -1829,7 +2122,12 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         customVideoName: String? = null,
         playVideoAudio: Boolean = true,
         volume: Float = preferences.value.chimeVolume,
-        durationSeconds: Int = ScheduledChime.DURATION_VIDEO_LENGTH
+        durationSeconds: Int = ScheduledChime.DURATION_VIDEO_LENGTH,
+        displayLayer: VideoDisplayLayer = try {
+            VideoDisplayLayer.valueOf(preferences.value.defaultVideoDisplayLayer)
+        } catch (_: Exception) {
+            VideoDisplayLayer.BACKGROUND
+        }
     ) {
         videoDismissJob?.cancel()
         if (playVideoAudio) {
@@ -1837,14 +2135,15 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
         _activeBackgroundVideo.value = ActiveBackgroundVideo(
             chimeId = null,
-            chimeLabel = "プレビュー",
+            chimeLabel = if (displayLayer == VideoDisplayLayer.FOREGROUND) "前面動画再生" else "背景動画再生",
             videoSourceType = videoSourceType,
             customVideoPath = customVideoPath,
             customVideoName = customVideoName,
             playVideoAudio = playVideoAudio,
             volume = volume,
             startTimeMs = System.currentTimeMillis(),
-            durationSeconds = durationSeconds
+            durationSeconds = durationSeconds,
+            displayLayer = displayLayer
         )
 
         if (durationSeconds == ScheduledChime.DURATION_VIDEO_LENGTH) {
@@ -1871,15 +2170,43 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun testPlayCustomVideo(video: CustomVideoItem, withAudio: Boolean = true) {
+    fun testPlayCustomVideo(
+        video: CustomVideoItem,
+        withAudio: Boolean = true,
+        displayLayer: VideoDisplayLayer = try {
+            VideoDisplayLayer.valueOf(preferences.value.defaultVideoDisplayLayer)
+        } catch (_: Exception) {
+            VideoDisplayLayer.BACKGROUND
+        }
+    ) {
         previewBackgroundVideo(
             videoSourceType = ChimeVideoSourceType.CUSTOM_FILE,
             customVideoPath = video.filePath,
             customVideoName = video.name,
             playVideoAudio = withAudio,
             volume = preferences.value.chimeVolume,
-            durationSeconds = ScheduledChime.DURATION_VIDEO_LENGTH
+            durationSeconds = ScheduledChime.DURATION_VIDEO_LENGTH,
+            displayLayer = displayLayer
         )
+    }
+
+    fun toggleActiveVideoDisplayLayer() {
+        val current = _activeBackgroundVideo.value ?: return
+        val newLayer = if (current.displayLayer == VideoDisplayLayer.BACKGROUND) {
+            VideoDisplayLayer.FOREGROUND
+        } else {
+            VideoDisplayLayer.BACKGROUND
+        }
+        _activeBackgroundVideo.value = current.copy(displayLayer = newLayer)
+    }
+
+    fun setActiveVideoDisplayLayer(layer: VideoDisplayLayer) {
+        val current = _activeBackgroundVideo.value ?: return
+        _activeBackgroundVideo.value = current.copy(displayLayer = layer)
+    }
+
+    fun setDefaultVideoDisplayLayer(layer: VideoDisplayLayer) {
+        prefsManager.updatePreferences(preferences.value.copy(defaultVideoDisplayLayer = layer.name))
     }
 
     fun dismissBackgroundVideo() {
