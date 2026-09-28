@@ -48,17 +48,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestBluetoothPermissions() {
+        val permissionsNeeded = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissionsNeeded = mutableListOf<String>()
             if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 permissionsNeeded.add(android.Manifest.permission.BLUETOOTH_SCAN)
             }
             if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                 permissionsNeeded.add(android.Manifest.permission.BLUETOOTH_CONNECT)
             }
-            if (permissionsNeeded.isNotEmpty()) {
-                requestBluetoothPermissionLauncher.launch(permissionsNeeded.toTypedArray())
+        } else {
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
             }
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+        }
+        if (permissionsNeeded.isNotEmpty()) {
+            requestBluetoothPermissionLauncher.launch(permissionsNeeded.toTypedArray())
         }
     }
 

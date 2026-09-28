@@ -214,6 +214,72 @@ class IpCameraServer(
     private val activeAudioClients = AtomicInteger(0)
     private val currentAudioLevel = AtomicInteger(0)
 
+    // Active WebSocket sessions for real-time dashboard updates (User Requested: web socket使って)
+    class WebSocketSession(val socket: Socket, val out: OutputStream) {
+        fun sendText(text: String) {
+            synchronized(out) {
+                val bytes = text.toByteArray(Charsets.UTF_8)
+                val len = bytes.size
+                out.write(0x81) // FIN=1, opcode=1 (text)
+                when {
+                    len <= 125 -> {
+                        out.write(len)
+                    }
+                    len <= 65535 -> {
+                        out.write(126)
+                        out.write((len shr 8) and 0xFF)
+                        out.write(len and 0xFF)
+                    }
+                    else -> {
+                        out.write(127)
+                        for (i in 7 downTo 0) {
+                            out.write(((len.toLong() shr (i * 8)) and 0xFF).toInt())
+                        }
+                    }
+                }
+                out.write(bytes)
+                out.flush()
+            }
+        }
+
+        fun sendPong(payload: ByteArray) {
+            synchronized(out) {
+                out.write(0x8A) // FIN=1, opcode=10 (pong)
+                val len = payload.size.coerceAtMost(125)
+                out.write(len)
+                if (len > 0) out.write(payload, 0, len)
+                out.flush()
+            }
+        }
+    }
+
+    private val webSocketSessions = CopyOnWriteArrayList<WebSocketSession>()
+    private var lastBroadcastMs = 0L
+
+    fun broadcastWebSocketText(text: String) {
+        if (webSocketSessions.isEmpty()) return
+        val dead = mutableListOf<WebSocketSession>()
+        for (session in webSocketSessions) {
+            try {
+                session.sendText(text)
+            } catch (_: Exception) {
+                dead.add(session)
+            }
+        }
+        if (dead.isNotEmpty()) {
+            webSocketSessions.removeAll(dead)
+        }
+    }
+
+    fun broadcastMusicPlayerUpdate() {
+        if (webSocketSessions.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (now - lastBroadcastMs < 200) return
+        lastBroadcastMs = now
+        val text = buildStatusJson()
+        broadcastWebSocketText(text)
+    }
+
     fun isRunning(): Boolean = isRunning.get()
     fun getPort(): Int = port
     fun getAudioLevel(): Int = currentAudioLevel.get()

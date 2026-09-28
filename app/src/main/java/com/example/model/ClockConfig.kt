@@ -149,6 +149,8 @@ data class ClockPreferencesState(
     val equalizerBand2: Int = 0, // 910Hz
     val equalizerBand3: Int = 0, // 3600Hz
     val equalizerBand4: Int = 0, // 14000Hz
+    val equalizerBassBoostStrength: Int = 0, // 0..1000 (0% .. 100%)
+    val equalizerVirtualizerStrength: Int = 0, // 0..1000 (0% .. 100%)
     val equalizerBassCutMode: String = "OFF", // OFF, LIGHT, MEDIUM, STRONG, EXTREME
     // Earphone Jack / DAC Anti-Noise Silence Keep-Alive (イヤホンジャック待機ノイズ・ポップ音防止の常時無音再生)
     val antiNoiseSilenceEnabled: Boolean = true

@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothSocket
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -19,14 +20,20 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
+import com.example.model.BleDeviceInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
@@ -58,6 +65,9 @@ class BleSensorManager(
 
         // CCCD descriptor (0x2902)
         val CLIENT_CHARACTERISTIC_CONFIG: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        // Serial Port Profile (SPP / RFCOMM) for Classic Bluetooth ESP32 Serial
+        val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     }
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -71,6 +81,20 @@ class BleSensorManager(
     private var isConnectedInternal = false
     val isConnected: Boolean get() = isConnectedInternal
     private var targetDeviceName = "ESP32C3-Sensor"
+    var connectedDeviceAddress: String? = null
+        private set
+
+    // Classic Bluetooth SPP state
+    private var sppSocket: BluetoothSocket? = null
+    private var sppReadJob: Job? = null
+    private var isSppMode: Boolean = false
+
+    // Discovered and Bonded Bluetooth devices
+    private val _bondedDevices = MutableStateFlow<List<BleDeviceInfo>>(emptyList())
+    val bondedDevices: StateFlow<List<BleDeviceInfo>> = _bondedDevices.asStateFlow()
+
+    private val _scannedDevices = MutableStateFlow<List<BleDeviceInfo>>(emptyList())
+    val scannedDevices: StateFlow<List<BleDeviceInfo>> = _scannedDevices.asStateFlow()
 
     // IR Remote Callbacks
     var onIrSignalReceived: ((protocol: String, hex: String, bits: Int, raw: String) -> Unit)? = null
@@ -85,6 +109,7 @@ class BleSensorManager(
     var onOtaProgress: ((percent: Int, writtenBytes: Int, totalBytes: Int, speedKbps: Float, statusMsg: String) -> Unit)? = null
     var onOtaStatus: ((status: String, message: String) -> Unit)? = null
 
+    private var currentMtu: Int = 23
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var autoReconnectJob: Job? = null
     private val lineBuffer = StringBuilder()
@@ -99,11 +124,29 @@ class BleSensorManager(
 
                 Log.d(TAG, "BLE Scan Result: name='$devName', addr='$devAddress', rssi=${result.rssi}")
 
+                // Update scanned devices list in real-time
+                val isDevBonded = try { device.bondState == BluetoothDevice.BOND_BONDED } catch (_: Exception) { false }
+                val devInfo = BleDeviceInfo(
+                    name = devName.ifBlank { "Bluetooth機器 ($devAddress)" },
+                    address = devAddress,
+                    rssi = result.rssi,
+                    isBonded = isDevBonded,
+                    isConnected = (devAddress == connectedDeviceAddress && isConnectedInternal)
+                )
+                val curList = _scannedDevices.value.toMutableList()
+                val existingIdx = curList.indexOfFirst { it.address == devAddress }
+                if (existingIdx >= 0) {
+                    curList[existingIdx] = devInfo
+                } else {
+                    curList.add(devInfo)
+                }
+                _scannedDevices.value = curList.sortedByDescending { it.rssi ?: -100 }.take(25)
+
                 // 判定1: デバイス名が一致、またはESP32/ESP32C3/Sensor等のキーワードが含まれる
-                val nameMatches = matchesTarget(devName)
+                val nameMatches = matchesTarget(devName, devAddress)
 
                 // 判定2: NUSサービスUUIDがアドバタイズに含まれているか確認（名前が取得できなくても即接続）
-                val uuidMatches = scanRec?.serviceUuids?.any { it.uuid == NUS_SERVICE_UUID } ?: false
+                val uuidMatches = scanRec?.serviceUuids?.any { it.uuid == NUS_SERVICE_UUID || it.uuid == ENV_SERVICE_UUID } ?: false
 
                 if (nameMatches || uuidMatches) {
                     Log.i(TAG, "Target ESP32-C3 detected: name='$devName', addr='$devAddress', uuidMatch=$uuidMatches. Connecting...")
@@ -177,16 +220,28 @@ class BleSensorManager(
                 triggerAutoReconnect()
             } else if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "GATT connection failed with status: $status. Reconnecting...")
+                val failedDev = gatt.device
                 isConnectedInternal = false
                 closeGatt()
-                onStatusChanged(false, false, "接続エラー (status=$status)。再検索中...")
-                triggerAutoReconnect()
+                val isBonded = try { failedDev?.bondState == BluetoothDevice.BOND_BONDED } catch (_: Exception) { false }
+                if (failedDev != null && isBonded && !isSppMode) {
+                    Log.i(TAG, "GATT connection failed on bonded device ${failedDev.address}. Falling back to Bluetooth SPP...")
+                    connectToDeviceSpp(failedDev)
+                } else {
+                    onStatusChanged(false, false, "接続エラー (status=$status)。再検索中...")
+                    triggerAutoReconnect()
+                }
             }
         }
 
         @SuppressLint("MissingPermission")
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
-            Log.i(TAG, "MTU changed to $mtu, status: $status. Discovering services...")
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                currentMtu = mtu
+                Log.i(TAG, "MTU changed to $mtu. Discovering services...")
+            } else {
+                Log.w(TAG, "MTU change failed with status $status, keeping current MTU $currentMtu")
+            }
             mainHandler.postDelayed({
                 try {
                     gatt.discoverServices()
@@ -246,11 +301,14 @@ class BleSensorManager(
         }
     }
 
-    private fun matchesTarget(name: String): Boolean {
+    fun matchesTarget(name: String, address: String = ""): Boolean {
+        if (address.isNotBlank() && targetDeviceName.isNotBlank() && address.equals(targetDeviceName, ignoreCase = true)) {
+            return true
+        }
         if (name.isBlank()) return false
         if (name.equals(targetDeviceName, ignoreCase = true)) return true
         val lower = name.lowercase()
-        return lower.contains("esp32") || lower.contains("esp32c3") || lower.contains("sensor")
+        return lower.contains("esp32") || lower.contains("esp32c3") || lower.contains("sensor") || lower.contains("esp_") || lower.contains("clock")
     }
 
     fun setTargetDeviceName(name: String) {
@@ -266,7 +324,11 @@ class BleSensorManager(
         setTargetDeviceName(targetName)
         isStarted = true
         Log.i(TAG, "Starting BLE Sensor Manager with target: $targetDeviceName")
-        startAutoScanLoop()
+        refreshBondedDevices()
+        val connected = connectToBondedOrConnectedDevice()
+        if (!connected) {
+            startAutoScanLoop()
+        }
     }
 
     /**
@@ -277,7 +339,7 @@ class BleSensorManager(
         autoReconnectJob?.cancel()
         autoReconnectJob = null
         stopScan()
-        closeGatt()
+        closeAllConnections()
         onStatusChanged(false, false, "BLE停止中")
     }
 
@@ -285,21 +347,29 @@ class BleSensorManager(
      * 手動再スキャン / 再接続リクエスト
      */
     fun retryConnection() {
+        stopScan()
+        closeAllConnections()
+        refreshBondedDevices()
         if (!isStarted) {
             start(targetDeviceName)
             return
         }
-        stopScan()
-        closeGatt()
-        triggerAutoReconnect()
+        val connected = connectToBondedOrConnectedDevice()
+        if (!connected) {
+            triggerAutoReconnect()
+        }
     }
 
     private fun startAutoScanLoop() {
         autoReconnectJob?.cancel()
         autoReconnectJob = scope.launch {
             while (isActive && isStarted) {
-                if (bluetoothGatt == null && !isConnectedInternal) {
-                    startScan()
+                if (bluetoothGatt == null && sppSocket == null && !isConnectedInternal) {
+                    refreshBondedDevices()
+                    val connected = connectToBondedOrConnectedDevice()
+                    if (!connected) {
+                        startScan()
+                    }
                 }
                 delay(10000) // 10秒ごとに接続状況を維持・監視
             }
@@ -309,9 +379,70 @@ class BleSensorManager(
     private fun triggerAutoReconnect() {
         scope.launch {
             delay(1500)
-            if (isStarted && bluetoothGatt == null && !isConnectedInternal) {
-                startScan()
+            if (isStarted && bluetoothGatt == null && sppSocket == null && !isConnectedInternal) {
+                val connected = connectToBondedOrConnectedDevice()
+                if (!connected) {
+                    startScan()
+                }
             }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connectToBondedOrConnectedDevice(): Boolean {
+        val adapter = bluetoothAdapter ?: return false
+        if (!adapter.isEnabled) return false
+
+        // 1. Check if device is already connected via GATT in Android OS
+        try {
+            val connectedGatt = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT)
+            if (!connectedGatt.isNullOrEmpty()) {
+                for (dev in connectedGatt) {
+                    val dName = dev.name ?: ""
+                    if (matchesTarget(dName, dev.address)) {
+                        Log.i(TAG, "Target device already connected via GATT in OS: $dName (${dev.address}). Connecting...")
+                        connectToDevice(dev)
+                        return true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "getConnectedDevices check: ${e.message}")
+        }
+
+        // 2. Check if device is in bonded (paired) devices
+        try {
+            val bonded = adapter.bondedDevices
+            if (!bonded.isNullOrEmpty()) {
+                val match = bonded.firstOrNull { matchesTarget(it.name ?: "", it.address) }
+                if (match != null) {
+                    Log.i(TAG, "Target found in paired (bonded) devices: ${match.name} (${match.address}). Connecting...")
+                    connectToDevice(match)
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "bondedDevices check: ${e.message}")
+        }
+
+        return false
+    }
+
+    @SuppressLint("MissingPermission")
+    fun refreshBondedDevices() {
+        try {
+            val bonded = bluetoothAdapter?.bondedDevices ?: emptySet()
+            val list = bonded.map { dev ->
+                BleDeviceInfo(
+                    name = dev.name ?: "不明なデバイス",
+                    address = dev.address,
+                    isBonded = true,
+                    isConnected = (dev.address == connectedDeviceAddress && isConnectedInternal)
+                )
+            }
+            _bondedDevices.value = list
+        } catch (e: Exception) {
+            Log.w(TAG, "Error querying bonded devices: ${e.message}")
         }
     }
 
@@ -374,11 +505,20 @@ class BleSensorManager(
     }
 
     @SuppressLint("MissingPermission")
-    private fun connectToDevice(device: BluetoothDevice) {
+    fun connectToDevice(device: BluetoothDevice) {
         val devDisplayName = device.name ?: device.address
+        connectedDeviceAddress = device.address
         onStatusChanged(false, true, "接続中: $devDisplayName...")
+
+        // If device is strictly Classic Bluetooth (not LE), connect via SPP RFCOMM
+        if (device.type == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+            Log.i(TAG, "Device $devDisplayName is Classic Bluetooth. Connecting via SPP...")
+            connectToDeviceSpp(device)
+            return
+        }
+
         try {
-            closeGatt()
+            closeAllConnections()
             bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
             } else {
@@ -389,6 +529,65 @@ class BleSensorManager(
             onStatusChanged(false, false, "Bluetooth接続権限が必要です")
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting GATT", e)
+            onStatusChanged(false, false, "接続エラー: ${e.message}")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connectToDeviceSpp(device: BluetoothDevice) {
+        sppReadJob?.cancel()
+        sppReadJob = scope.launch(Dispatchers.IO) {
+            closeAllConnections()
+            val devDisplayName = device.name ?: device.address
+            connectedDeviceAddress = device.address
+            withContext(Dispatchers.Main) {
+                onStatusChanged(false, true, "SPP接続中: $devDisplayName...")
+            }
+            try {
+                try { bluetoothAdapter?.cancelDiscovery() } catch (_: Exception) {}
+
+                val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                socket.connect()
+                sppSocket = socket
+                isSppMode = true
+                isConnectedInternal = true
+                withContext(Dispatchers.Main) {
+                    onStatusChanged(true, false, null)
+                    refreshBondedDevices()
+                }
+                Log.i(TAG, "Bluetooth SPP connected successfully to $devDisplayName (${device.address})")
+
+                val reader = BufferedReader(InputStreamReader(socket.inputStream, StandardCharsets.UTF_8))
+                while (isActive && isConnectedInternal && sppSocket != null) {
+                    val line = reader.readLine() ?: break
+                    handleIncomingBytes((line + "\n").toByteArray(StandardCharsets.UTF_8))
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Bluetooth SPP error: ${e.message}")
+                closeSpp()
+                withContext(Dispatchers.Main) {
+                    onStatusChanged(false, false, "SPP切断: ${e.message ?: "再試行中"}")
+                }
+                triggerAutoReconnect()
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun connectToAddress(address: String) {
+        val adapter = bluetoothAdapter ?: run {
+            onStatusChanged(false, false, "Bluetoothが無効です")
+            return
+        }
+        try {
+            val dev = adapter.getRemoteDevice(address)
+            if (dev != null) {
+                targetDeviceName = dev.name ?: address
+                stopScan()
+                connectToDevice(dev)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error connecting to address $address", e)
             onStatusChanged(false, false, "接続エラー: ${e.message}")
         }
     }
@@ -458,6 +657,25 @@ class BleSensorManager(
      */
     @SuppressLint("MissingPermission")
     fun sendCommand(jsonCommand: String): Boolean {
+        // If connected via Classic Bluetooth SPP RFCOMM
+        if (isSppMode && sppSocket != null) {
+            return try {
+                val payload = if (jsonCommand.endsWith("\n")) jsonCommand else "$jsonCommand\n"
+                val stream = sppSocket?.outputStream
+                if (stream != null) {
+                    stream.write(payload.toByteArray(StandardCharsets.UTF_8))
+                    stream.flush()
+                    Log.d(TAG, "SPP Command sent (${payload.length} chars): ${payload.take(120)}...")
+                    true
+                } else {
+                    false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error writing SPP command", e)
+                false
+            }
+        }
+
         val gatt = bluetoothGatt ?: run {
             Log.w(TAG, "Cannot send command: BLE is not connected")
             return false
@@ -470,25 +688,55 @@ class BleSensorManager(
         try {
             val payload = if (jsonCommand.endsWith("\n")) jsonCommand else "$jsonCommand\n"
             val bytes = payload.toByteArray(StandardCharsets.UTF_8)
+            val maxChunkSize = (currentMtu - 3).coerceIn(20, 240)
 
+            if (bytes.size <= maxChunkSize) {
+                writeCharacteristicDirect(gatt, writeChar, bytes)
+            } else {
+                // 長大なRAWパルス列等を含むJSONコマンドはMTU境界でチャンク分割送信
+                scope.launch(Dispatchers.IO) {
+                    var offset = 0
+                    while (offset < bytes.size) {
+                        val end = (offset + maxChunkSize).coerceAtMost(bytes.size)
+                        val chunk = bytes.copyOfRange(offset, end)
+                        writeCharacteristicDirect(gatt, writeChar, chunk)
+                        offset = end
+                        if (offset < bytes.size) {
+                            delay(18) // BLEスタックおよびESP32受信バッファのオーバーフローを防止
+                        }
+                    }
+                }
+            }
+            Log.d(TAG, "BLE Command sent (${bytes.size} bytes): ${payload.take(120)}...")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing BLE command", e)
+            return false
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun writeCharacteristicDirect(
+        gatt: BluetoothGatt,
+        writeChar: BluetoothGattCharacteristic,
+        chunk: ByteArray
+    ) {
+        try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val writeType = if ((writeChar.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
                     BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 } else {
                     BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                 }
-                gatt.writeCharacteristic(writeChar, bytes, writeType)
+                gatt.writeCharacteristic(writeChar, chunk, writeType)
             } else {
                 @Suppress("DEPRECATION")
-                writeChar.value = bytes
+                writeChar.value = chunk
                 @Suppress("DEPRECATION")
                 gatt.writeCharacteristic(writeChar)
             }
-            Log.d(TAG, "BLE Command sent: $payload")
-            return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error writing BLE command", e)
-            return false
+            Log.e(TAG, "Failed writing characteristic chunk", e)
         }
     }
 
@@ -712,6 +960,23 @@ class BleSensorManager(
         bluetoothGatt = null
         writeCharacteristic = null
         isConnectedInternal = false
+    }
+
+    fun closeSpp() {
+        try {
+            sppReadJob?.cancel()
+            sppReadJob = null
+            sppSocket?.close()
+        } catch (_: Exception) {}
+        sppSocket = null
+        isSppMode = false
+    }
+
+    @SuppressLint("MissingPermission")
+    fun closeAllConnections() {
+        closeGatt()
+        closeSpp()
+        connectedDeviceAddress = null
     }
 
     private fun handleIncomingBytes(bytes: ByteArray) {

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ClockViewModel
+import com.example.data.IrParserHelper
 import com.example.model.EspSensorData
 import com.example.model.IrDeviceCategory
 import com.example.model.IrLearnState
@@ -39,6 +40,7 @@ fun IrRemoteSettingsTab(
     modifier: Modifier = Modifier
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var showRawImportDialog by remember { mutableStateOf(false) }
     var editingButton by remember { mutableStateOf<IrRemoteButton?>(null) }
     var showCircuitDialog by remember { mutableStateOf(false) }
     var selectedCategoryFilter by remember { mutableStateOf<IrDeviceCategory?>(null) }
@@ -120,28 +122,28 @@ fun IrRemoteSettingsTab(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (irLearnState.isLearning) {
                             Button(
                                 onClick = { viewModel.stopIrLearning() },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1.1f)
                             ) {
-                                Icon(Icons.Default.Stop, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("学習を停止")
+                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("学習を停止", fontSize = 13.sp)
                             }
                         } else {
                             Button(
                                 onClick = { viewModel.startIrLearning() },
                                 enabled = espSensorData.isConnected,
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1.1f)
                             ) {
-                                Icon(Icons.Default.Sensors, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("リモコン信号を学習 (受信待機)")
+                                Icon(Icons.Default.Sensors, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("リモコン学習", fontSize = 13.sp)
                             }
                         }
 
@@ -153,11 +155,42 @@ fun IrRemoteSettingsTab(
                                 )
                                 showAddDialog = true
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(0.95f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("手動コード登録")
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("手動登録", fontSize = 12.5.sp)
+                        }
+
+                        FilledTonalButton(
+                            onClick = { showRawImportDialog = true },
+                            modifier = Modifier.weight(1.15f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.AcUnit, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("エアコン/RAW解析", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "💡 エアコンは照明と違い144〜288bit(200パルス以上)の長大信号を送るため、短縮HEXではなくRAWパルス列で送信します。「エアコン/RAW解析」から生データを直接登録・テスト可能です。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
@@ -366,6 +399,21 @@ fun IrRemoteSettingsTab(
             onTestSend = { btn ->
                 viewModel.sendIrButton(btn)
             }
+        )
+    }
+
+    // エアコン・長文RAW信号解析ダイアログ
+    if (showRawImportDialog) {
+        IrRawImportDialog(
+            onDismiss = { showRawImportDialog = false },
+            onSaveButton = { btn ->
+                viewModel.saveIrButton(btn)
+                showRawImportDialog = false
+            },
+            onTestSend = { btn ->
+                viewModel.sendIrButton(btn)
+            },
+            isConnected = espSensorData.isConnected
         )
     }
 
@@ -620,19 +668,33 @@ fun IrButtonEditDialog(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("赤外線コード詳細 (学習済み / 手動)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("赤外線コード詳細 (学習済み / 手動)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                                if (category == IrDeviceCategory.AIR_CONDITIONER) {
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text("エアコン: RAW推奨", fontSize = 11.sp) },
+                                        leadingIcon = { Icon(Icons.Default.AcUnit, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                    )
+                                }
+                            }
+
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     value = protocol,
                                     onValueChange = { protocol = it },
-                                    label = { Text("プロトコル") },
+                                    label = { Text("プロトコル (NEC, BOSCH144等)") },
                                     modifier = Modifier.weight(1f),
                                     singleLine = true
                                 )
                                 OutlinedTextField(
                                     value = bits,
                                     onValueChange = { bits = it },
-                                    label = { Text("Bits") },
+                                    label = { Text("Bits (32, 144等)") },
                                     modifier = Modifier.weight(0.6f),
                                     singleLine = true
                                 )
@@ -645,36 +707,83 @@ fun IrButtonEditDialog(
                                 singleLine = true,
                                 textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace)
                             )
-                            if (rawCode.isNotBlank()) {
-                                val pulseCount = rawCode.split(",").filter { it.isNotBlank() }.size
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                    ),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
+
+                            // RAWパルス列（エアコンや長大プロトコルで必須）
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                val pulseCount = if (rawCode.isNotBlank()) {
+                                    rawCode.split(",").filter { it.isNotBlank() }.size
+                                } else 0
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Default.CheckCircle,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = if (pulseCount > 0) "RAWパルス列 ($pulseCount パルス / ${rawCode.length}文字)" else "RAWパルス列 (マイクロ秒コンマ区切り)",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (pulseCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (rawCode.isNotBlank()) {
+                                        TextButton(
+                                            onClick = { rawCode = "" },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("クリア", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = rawCode,
+                                    onValueChange = { input ->
+                                        rawCode = input
+                                        // 自動でプロトコルやHEXを解析
+                                        IrParserHelper.tryParse(input)?.let { parsed ->
+                                            if (parsed.protocol != "UNKNOWN") protocol = parsed.protocol
+                                            if (parsed.bits > 0) bits = parsed.bits.toString()
+                                            if (parsed.hexCode != "0x0") hexCode = parsed.hexCode
+                                        }
+                                    },
+                                    placeholder = { Text("4396,4390,516,1636,... (エアコン等の長大パルス)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 2,
+                                    maxLines = 4,
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                )
+
+                                if (rawCode.isNotBlank()) {
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(
+                                                    text = "高精度RAWパルス保存済み ($pulseCount パルス)",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
                                             Text(
-                                                text = "高精度RAWパルス記録済み ($pulseCount パルス)",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
+                                                text = "エアコン(BOSCH144/DAIKIN等)の全状態設定や照明の調光ボタンも、この生パルス列で実機リモコンと100%同じタイミングで正確に送信されます。",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                        Text(
-                                            text = "照明の調光ボタン（暗く/明るく）などの長押しや未知フォーマットも、このパルス列により実機リモコンと100%同じタイミングで正確に発信されます。",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
                                 }
                             }
@@ -860,6 +969,251 @@ fun IrButtonEditDialog(
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("テスト発信")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("キャンセル")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun IrRawImportDialog(
+    onDismiss: () -> Unit,
+    onSaveButton: (IrRemoteButton) -> Unit,
+    onTestSend: (IrRemoteButton) -> Unit,
+    isConnected: Boolean
+) {
+    var rawInputText by remember { mutableStateOf("") }
+    var buttonName by remember { mutableStateOf("エアコン (BOSCH144)") }
+    var selectedCategory by remember { mutableStateOf(IrDeviceCategory.AIR_CONDITIONER) }
+    var repeatCount by remember { mutableStateOf(1) }
+    var isTestSending by remember { mutableStateOf(false) }
+
+    val userPresetBosch144 = "4396,4390,516,1636,518,1632,518,590,524,550,484,592,482,594,482,1634,528,580,482,594,506,568,506,1642,506,1646,504,1646,506,1644,504,572,504,1646,508,568,504,572,502,572,504,1644,508,1644,508,1644,506,1644,506,1646,506,1644,506,1642,508,1646,504,572,508,566,506,570,504,570,504,570,504,1646,506,1644,506,570,504,572,504,570,506,1644,506,570,502,572,504,572,504,570,506,1644,506,1644,506,1644,506,570,504,1646,506,1644,506,5240,4364,4426,506,1646,504,1648,506,568,524,552,504,570,504,570,506,1644,508,568,504,570,506,570,502,1646,506,1646,506,1646,504,1644,508,568,504,1644,506,570,504,570,506,570,502,1648,506,1644,504,1644,508,1644,506,1644,506,1644,506,1646,506,1644,506,570,508,568,506,570,504,570,504,570,504,1644,506,1646,504,572,502,572,504,572,504,1646,504,570,504,570,506,570,504,570,504,1644,506,1646,506,1646,504,570,506,1646,504,1648,504,5240,4364,4428,506,1644,506,1642,508,570,524,1628,506,570,504,1646,504,572,504,1646,506,570,506,1646,504,1646,538,538,506,570,504,1646,506,574,500,1646,504,570,504,568,506,570,504,570,504,572,504,566,508,570,506,570,504,570,506,570,504,572,502,570,506,570,504,570,506,572,504,570,504,570,504,570,506,570,506,568,506,568,506,570,506,570,504,570,506,574,502,564,510,1642,508,1646,504,1646,506,570,506,1646,506,570,506"
+
+    val parsedSignal = remember(rawInputText) {
+        if (rawInputText.isNotBlank()) {
+            IrParserHelper.tryParse(rawInputText)
+        } else null
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AcUnit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("エアコン/長文RAWパルス解析＆登録")
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 説明カード
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("なぜエアコンは照明と違い動かないのか？", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                            }
+                            Text(
+                                text = "照明リモコンは「点灯(32bit)」など短い固定コードですが、エアコンはボタンを押すたびに「運転ON・冷房・26℃・風量自動・風向スイング」など現在のすべての状態をひとまとめにした長大な信号（BOSCH144等、144〜288bit、200パルス以上）を一括送信します。\n短い64bit用HEXコードだけではエアコンが設定を受け付けないため、完全な生パルス列(RAW)で送信する必要があります。",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // プリセットボタン
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("生データ入力 (コンマ区切りマイクロ秒 / ログ)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        TextButton(
+                            onClick = {
+                                rawInputText = userPresetBosch144 + "\n0x3DC23BC4E01F3DC2\nBOSCH144"
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("保存済みエアコン信号を貼付", fontSize = 11.sp)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = rawInputText,
+                        onValueChange = { rawInputText = it },
+                        placeholder = { Text("4396,4390,516,1636,... またはシリアル受信ログを貼り付け") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 6,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    )
+                }
+
+                // 解析結果カード
+                item {
+                    if (parsedSignal != null) {
+                        val pulseCount = if (parsedSignal.rawCode.isNotBlank()) {
+                            parsedSignal.rawCode.split(",").filter { it.isNotBlank() }.size
+                        } else 0
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("解析成功: ${parsedSignal.protocol} (${parsedSignal.bits} bit)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("HEX: ${parsedSignal.hexCode}", fontFamily = FontFamily.Monospace, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("パルス数: ${pulseCount}P", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                }
+                                Text(
+                                    text = "✅ 長大なRAWパルス列が抽出されました。ESP32送信時に自動チャンク分割（MTU最適化）され、エアコン実機へ確実に届きます。",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (rawInputText.isNotBlank()) {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("パルス列またはHEXコードが認識できません。コンマ区切りの数値列を入力してください。", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+
+                // ボタン名
+                item {
+                    OutlinedTextField(
+                        value = buttonName,
+                        onValueChange = { buttonName = it },
+                        label = { Text("登録ボタン名") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // 家電カテゴリ
+                item {
+                    Text("家電カテゴリ", style = MaterialTheme.typography.labelMedium)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(IrDeviceCategory.values()) { cat ->
+                            FilterChip(
+                                selected = selectedCategory == cat,
+                                onClick = { selectedCategory = cat },
+                                label = { Text(cat.displayName.split("・")[0]) }
+                            )
+                        }
+                    }
+                }
+
+                // 送信リピート
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("送信リピート回数", style = MaterialTheme.typography.labelMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(1 to "1回(通常)", 2 to "2回(確実)").forEach { (cnt, label) ->
+                                FilterChip(
+                                    selected = repeatCount == cnt,
+                                    onClick = { repeatCount = cnt },
+                                    label = { Text(label) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val sig = parsedSignal ?: IrParserHelper.tryParse(rawInputText)
+                    val rawClean = if (sig?.rawCode?.isNotBlank() == true) {
+                        sig.rawCode
+                    } else if (rawInputText.contains(",")) {
+                        rawInputText.split(Regex("[,\\s]+")).filter { it.all { c -> c.isDigit() } && it.isNotEmpty() }.joinToString(",")
+                    } else ""
+
+                    val newBtn = IrRemoteButton(
+                        name = buttonName.trim().ifEmpty { "エアコン" },
+                        category = selectedCategory,
+                        protocol = sig?.protocol ?: "BOSCH144",
+                        hexCode = sig?.hexCode ?: "0x3DC23BC4E01F3DC2",
+                        bits = sig?.bits ?: 144,
+                        rawCode = rawClean,
+                        colorHex = "#3B82F6",
+                        repeatCount = repeatCount
+                    )
+                    onSaveButton(newBtn)
+                },
+                enabled = rawInputText.isNotBlank()
+            ) {
+                Text("ボタンとして保存")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        val sig = parsedSignal ?: IrParserHelper.tryParse(rawInputText)
+                        val rawClean = if (sig?.rawCode?.isNotBlank() == true) {
+                            sig.rawCode
+                        } else if (rawInputText.contains(",")) {
+                            rawInputText.split(Regex("[,\\s]+")).filter { it.all { c -> c.isDigit() } && it.isNotEmpty() }.joinToString(",")
+                        } else ""
+
+                        val testBtn = IrRemoteButton(
+                            name = buttonName,
+                            category = selectedCategory,
+                            protocol = sig?.protocol ?: "BOSCH144",
+                            hexCode = sig?.hexCode ?: "0x3DC23BC4E01F3DC2",
+                            bits = sig?.bits ?: 144,
+                            rawCode = rawClean,
+                            repeatCount = repeatCount
+                        )
+                        isTestSending = true
+                        onTestSend(testBtn)
+                    },
+                    enabled = isConnected && rawInputText.isNotBlank()
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (isTestSending) "発信中..." else "テスト発信")
                 }
                 TextButton(onClick = onDismiss) {
                     Text("キャンセル")

@@ -34,6 +34,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -206,32 +213,33 @@ fun UnifiedSettingsDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xD9000000))
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .background(Color(0xE6000000))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .fillMaxHeight(0.92f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(24.dp))
+                    .fillMaxWidth(0.98f)
+                    .fillMaxHeight(0.97f)
+                    .clip(RoundedCornerShape(22.dp))
+                    .border(1.2.dp, Color(0x44FFFFFF), RoundedCornerShape(22.dp))
                     .testTag("unified_settings_dialog"),
-                color = Color(0xFF14141B)
+                color = Color(0xFF13141C)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Header with title and close button
+                    // Header with title and prominent close button
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                            .background(Color(0xFF0F1017))
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(42.dp)
                                     .clip(CircleShape)
                                     .background(Color(0x2600E5FF)),
                                 contentAlignment = Alignment.Center
@@ -240,21 +248,21 @@ fun UnifiedSettingsDialog(
                                     imageVector = Icons.Default.Settings,
                                     contentDescription = null,
                                     tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
                             Column {
                                 Text(
                                     text = "卓上デスククロック 設定",
-                                    fontSize = 18.sp,
+                                    fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
                                 Text(
-                                    text = "文字盤・内カメラIP配信・時報・天気・画面保護",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF8E8E9A)
+                                    text = "文字盤・内カメラ・ESP温湿度・家電赤外線・時報・アラーム・画面保護",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFA0A0B2)
                                 )
                             }
                         }
@@ -262,57 +270,61 @@ fun UnifiedSettingsDialog(
                         IconButton(
                             onClick = onDismiss,
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(44.dp)
                                 .clip(CircleShape)
-                                .background(Color(0x1AFFFFFF))
+                                .background(Color(0x22FFFFFF))
+                                .border(1.dp, Color(0x33FFFFFF), CircleShape)
                                 .testTag("btn_close_settings")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "閉じる",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
 
-                    // Tab Navigation Row (Scrollable for full visibility on all screens)
+                    // Tab Navigation Row (Large, accessible touch targets >= 48dp)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color(0xFF101016))
+                            .background(Color(0xFF0A0B10))
                             .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         SettingsTab.values().forEach { tab ->
                             val isSelected = selectedTab == tab
                             Row(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (isSelected) Color(0x3300E5FF) else Color(0x0FFFFFFF))
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        if (isSelected) Color(0x3300E5FF) else Color(0x14FFFFFF)
+                                    )
                                     .border(
-                                        1.dp,
-                                        if (isSelected) Color(0x8000E5FF) else Color.Transparent,
-                                        RoundedCornerShape(12.dp)
+                                        1.5.dp,
+                                        if (isSelected) Color(0xFF00E5FF) else Color(0x1FFFFFFF),
+                                        RoundedCornerShape(14.dp)
                                     )
                                     .clickable { selectedTab = tab }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
                                     .testTag("tab_${tab.name}"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = tab.icon,
                                     contentDescription = null,
-                                    tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFF9E9EA8),
-                                    modifier = Modifier.size(16.dp)
+                                    tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = tab.title,
-                                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFC0C0CC),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFE2E8F0),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                                 )
                             }
                         }
@@ -423,49 +435,76 @@ private fun FaceAndPaletteSettingsContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         item {
-            Text(
-                text = "文字盤スタイル (全${ClockFace.values().size}種類)",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp, 18.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF00E5FF))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "文字盤スタイル (全${ClockFace.values().size}種類)",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
-                modifier = Modifier.height(310.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.height(340.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(ClockFace.values()) { face ->
                     val isSelected = preferences.clockFace == face
                     Column(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isSelected) Color(0x3300E5FF) else Color(0x18FFFFFF))
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isSelected) Color(0x3300E5FF) else Color(0x1AFFFFFF))
                             .border(
-                                1.dp,
-                                if (isSelected) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                RoundedCornerShape(14.dp)
+                                1.5.dp,
+                                if (isSelected) Color(0xFF00E5FF) else Color(0x28FFFFFF),
+                                RoundedCornerShape(16.dp)
                             )
                             .clickable { viewModel.selectClockFace(face) }
-                            .padding(12.dp)
+                            .padding(horizontal = 14.dp, vertical = 12.dp)
                             .testTag("select_face_${face.name}")
                     ) {
-                        Text(
-                            text = face.title,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isSelected) Color(0xFF00E5FF) else Color.White
-                        )
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = face.title,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) Color(0xFF00E5FF) else Color.White
+                            )
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E5FF)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = face.subtitle,
-                            fontSize = 10.sp,
-                            color = Color(0xFF8E8E9A),
-                            maxLines = 2
+                            fontSize = 11.5.sp,
+                            color = if (isSelected) Color(0xFFE2E8F0) else Color(0xFFA0A0B0),
+                            maxLines = 2,
+                            lineHeight = 15.sp
                         )
                     }
                 }
@@ -473,45 +512,60 @@ private fun FaceAndPaletteSettingsContent(
         }
 
         item {
-            Text(
-                text = "カラーパレット",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp, 18.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(preferences.colorPalette.primary)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "カラーパレット (${ColorPalette.values().size}色テーマ)",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 ColorPalette.values().forEach { palette ->
                     val isSelected = preferences.colorPalette == palette
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(16.dp))
                             .background(if (isSelected) Color(0x3300E5FF) else Color(0x18FFFFFF))
                             .border(
-                                1.dp,
-                                if (isSelected) palette.primary else Color(0x22FFFFFF),
-                                RoundedCornerShape(14.dp)
+                                1.5.dp,
+                                if (isSelected) palette.primary else Color(0x25FFFFFF),
+                                RoundedCornerShape(16.dp)
                             )
                             .clickable { viewModel.selectColorPalette(palette) }
-                            .padding(vertical = 10.dp, horizontal = 6.dp),
+                            .padding(vertical = 14.dp, horizontal = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
                                 .background(palette.primary)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
+                                .border(1.5.dp, if (isSelected) Color.White else Color(0x44FFFFFF), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = palette.name.replace("_", " "),
-                            fontSize = 10.sp,
-                            color = if (isSelected) palette.primary else Color(0xFFA0A0AA),
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            fontSize = 12.sp,
+                            color = if (isSelected) palette.primary else Color(0xFFD0D0DC),
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                         )
                     }
                 }
@@ -519,16 +573,25 @@ private fun FaceAndPaletteSettingsContent(
         }
 
         item {
-            Text(
-                text = "表示オプション",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp, 18.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF00E5FF))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "時計表示オプション",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 SettingToggleCard(
                     title = "24時間表示",
@@ -5712,77 +5775,63 @@ private fun EqualizerSettingsContent(
     val isSilencePlaying by viewModel.isSilenceKeepAlivePlaying.collectAsState()
     val effectiveGains = eqState.getEffectiveBandGains()
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // 1. Hero Card: Master Equalizer Status & Quick Toggle
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0x1800E5FF),
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0x6600E5FF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        // 1. Equalizer Master Toggle & Reset
+        item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0F131D))
+                    .border(1.dp, if (eqState.isEnabled) Color(0x6600E5FF) else Color(0x22FFFFFF), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Surface(
                         shape = CircleShape,
                         color = if (eqState.isEnabled) Color(0x3300E5FF) else Color(0x22FFFFFF),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (eqState.isEnabled) Color(0xFF00E5FF) else Color(0x44FFFFFF)),
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.GraphicEq,
                                 contentDescription = null,
-                                tint = if (eqState.isEnabled) Color(0xFF00E5FF) else Color(0xFFAAAAAA),
-                                modifier = Modifier.size(24.dp)
+                                tint = if (eqState.isEnabled) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
-
                     Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("イコライザー有効", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            if (musicState.isPlaying) {
+                                SettingsVisualizerBars(isPlaying = true, accentColor = Color(0xFF00E5FF))
+                            }
+                        }
                         Text(
-                            text = "システム音質イコライザー & スピーカー保護",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = if (eqState.isEnabled)
-                                "🎚️ 現在: ${eqState.currentPreset.displayName} (低音カット: ${eqState.bassCutMode.displayName})"
-                            else
-                                "イコライザーはOFF（無加工スルー再生）です",
-                            fontSize = 11.sp,
-                            color = if (eqState.isEnabled) Color(0xFF38BDF8) else Color(0xFFAAAAAA)
+                            text = if (eqState.isEnabled) "現在: ${eqState.currentPreset.displayName}" else "OFF (無加工スルー再生)",
+                            fontSize = 10.5.sp,
+                            color = if (eqState.isEnabled) Color(0xFF38BDF8) else Color(0xFF94A3B8)
                         )
                     }
                 }
-
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
+                    Button(
                         onClick = { viewModel.resetEqualizerToFlat() },
-                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0x11FFFFFF)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FFFFFF)),
-                        modifier = Modifier.height(36.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFCCCCCC))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("標準に戻す", fontSize = 11.sp, color = Color(0xFFCCCCCC))
+                        Text("リセット", fontSize = 10.5.sp, color = Color.White)
                     }
-
                     Switch(
                         checked = eqState.isEnabled,
                         onCheckedChange = { viewModel.setEqualizerEnabled(it) },
@@ -5795,73 +5844,138 @@ private fun EqualizerSettingsContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        // 1.5 Sound Enhancement Bars: Bass Boost & 3D Virtualizer
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF0F131D))
+                    .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "🔊 サウンドエフェクト・強化バー",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF00E5FF)
+                )
 
-        // 2. Earphone Jack Anti-Noise Keep-Alive Card (常時無音再生 / イヤホンジャックノイズ・ポップ音防止)
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color(0x1800E5FF),
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0x33FFFFFF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
+                // Bass Boost Slider
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("💥 低音ブースト (Bass Boost):", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("迫力ある重低音を強化", fontSize = 9.5.sp, color = Color(0xFF888888))
+                        }
+                        Text(
+                            text = "${eqState.bassBoostStrength / 10}%",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (eqState.bassBoostStrength > 0) Color(0xFF00E5FF) else Color(0xFF888888)
+                        )
+                    }
+                    Slider(
+                        value = eqState.bassBoostStrength.toFloat(),
+                        onValueChange = { newVal ->
+                            viewModel.setEqualizerBassBoost(newVal.toInt())
+                        },
+                        valueRange = 0f..1000f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF00E5FF),
+                            activeTrackColor = Color(0xFF00E5FF),
+                            inactiveTrackColor = Color(0x33FFFFFF)
+                        ),
+                        modifier = Modifier.height(26.dp)
+                    )
+                }
+
+                // Virtualizer / 3D Surround Slider
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("🎧 立体音響・サラウンド (Virtualizer):", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("空間的な広がりを演出", fontSize = 9.5.sp, color = Color(0xFF888888))
+                        }
+                        Text(
+                            text = "${eqState.virtualizerStrength / 10}%",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (eqState.virtualizerStrength > 0) Color(0xFF38BDF8) else Color(0xFF888888)
+                        )
+                    }
+                    Slider(
+                        value = eqState.virtualizerStrength.toFloat(),
+                        onValueChange = { newVal ->
+                            viewModel.setEqualizerVirtualizer(newVal.toInt())
+                        },
+                        valueRange = 0f..1000f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF38BDF8),
+                            activeTrackColor = Color(0xFF38BDF8),
+                            inactiveTrackColor = Color(0x33FFFFFF)
+                        ),
+                        modifier = Modifier.height(26.dp)
+                    )
+                }
+            }
+        }
+
+        // 2. Earphone Jack Anti-Noise Keep-Alive (常時無音再生 / ノイズ防止)
+        item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF0F131D))
+                    .border(1.dp, if (preferences.antiNoiseSilenceEnabled) Color(0x6600E5FF) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (preferences.antiNoiseSilenceEnabled) Color(0x3300E5FF) else Color(0x22FFFFFF),
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.VolumeMute,
-                                contentDescription = null,
-                                tint = if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0xFFAAAAAA),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
+                    Icon(
+                        imageVector = Icons.Default.VolumeMute,
+                        contentDescription = null,
+                        tint = if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                        modifier = Modifier.size(18.dp)
+                    )
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "🔇 イヤホンジャック・ノイズ防止（常時無音再生）",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSilencePlaying) Color(0xFF00E5FF) else Color(0x33FFFFFF))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = if (isSilencePlaying) "● 常時出力中 (DACスリープ防止)" else "○ 停止中",
-                                    fontSize = 9.5.sp,
-                                    color = if (isSilencePlaying) Color.Black else Color(0xFFCCCCCC),
-                                    fontWeight = FontWeight.Bold
-                                )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("イヤホン・ノイズ防止（常時無音再生）", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            if (isSilencePlaying) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFF00E5FF))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text("出力中", fontSize = 9.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
-                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "タブレットのイヤホン端子や外部アンプが待機状態で発する「ジー」「サー」というホワイトノイズや、音が出る瞬間の「プチッ」というポップノイズを完全に防止するため、バックグラウンドで超低負荷な無音信号を常時流し続けます。（CPU負荷0%）",
-                            fontSize = 10.5.sp,
-                            color = Color(0xFFB0B0BE),
-                            lineHeight = 14.sp
+                            "端子の待機ジー音や再生開始時のプチッ音を防止",
+                            fontSize = 9.5.sp,
+                            color = Color(0xFF94A3B8)
                         )
                     }
                 }
-
                 Switch(
                     checked = preferences.antiNoiseSilenceEnabled,
                     onCheckedChange = { viewModel.setAntiNoiseSilenceEnabled(it) },
@@ -5873,323 +5987,315 @@ private fun EqualizerSettingsContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // 3. HIGHLIGHTED FEATURE: Low Frequency / Bass Cut Filter for Small Speakers (低音カット保護フィルター)
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = Color(0x1EFA541C),
-            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0x88FA541C)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+        // 3. Speaker Bass Cut Filter (Small speaker anti-rattling)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF0F131D))
+                    .border(1.dp, Color(0x33FA541C), RoundedCornerShape(10.dp))
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = "🛡️ 低音カット・スピーカー保護フィルター",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFFA541C)
+                )
+                Text(
+                    text = "小型スピーカーの低音歪み・音割れ・ビビリを強力にカット",
+                    fontSize = 9.5.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("🛡️ 小型スピーカー用 低音カット保護フィルター", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    BassCutMode.values().forEach { mode ->
+                        val isSel = eqState.bassCutMode == mode
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFFF7A45))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isSel) Color(0xFFFA541C) else Color(0x14FFFFFF))
+                                .clickable { viewModel.setEqualizerBassCutMode(mode) }
+                                .padding(vertical = 5.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("音割れ・ビビリ防止", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = when (mode) {
+                                    BassCutMode.OFF -> "OFF"
+                                    BassCutMode.LIGHT -> "弱(-4dB)"
+                                    BassCutMode.MEDIUM -> "中(-8dB)"
+                                    BassCutMode.STRONG -> "強(-12dB)"
+                                    BassCutMode.EXTREME -> "極(-16dB)"
+                                },
+                                fontSize = 9.5.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSel) Color.White else Color(0xFFCCCCCC)
+                            )
                         }
                     }
                 }
+            }
+        }
 
-                Spacer(modifier = Modifier.height(4.dp))
+        // 4. Presets
+        item {
+            Text("プリセット選択:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+            Spacer(modifier = Modifier.height(4.dp))
+            val presets = listOf(
+                EqualizerPreset.FLAT,
+                EqualizerPreset.BASS_BOOST,
+                EqualizerPreset.ROCK,
+                EqualizerPreset.POP,
+                EqualizerPreset.JAZZ,
+                EqualizerPreset.CLASSICAL,
+                EqualizerPreset.EDM,
+                EqualizerPreset.VOCAL,
+                EqualizerPreset.TREBLE_BOOST,
+                EqualizerPreset.NIGHT_RELAX,
+                EqualizerPreset.BASS_REDUCE,
+                EqualizerPreset.BASS_CUT_LIGHT
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                presets.chunked(3).forEach { rowPresets ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        rowPresets.forEach { p ->
+                            val isSel = eqState.currentPreset == p
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSel) Color(0x3300E5FF) else Color(0x12FFFFFF))
+                                    .border(
+                                        1.dp,
+                                        if (isSel) Color(0xFF00E5FF) else Color.Transparent,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .clickable { viewModel.setEqualizerPreset(p) }
+                                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = p.displayName.split(" ")[0],
+                                    fontSize = 9.5.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSel) Color(0xFF00E5FF) else Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        if (rowPresets.size < 3) {
+                            repeat(3 - rowPresets.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. 5-Band Graphic Sliders
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("5バンド手動調整 (-15dB 〜 +15dB):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
                 Text(
-                    text = "※時計端末の内蔵スピーカーや小型外部スピーカーが低音（重低音・EDM・ドラム）の再生で音割れしたり震えたりするのを防ぐため、耳障りな超低音域を段階的にカットします。",
-                    fontSize = 11.sp,
-                    color = Color(0xFFFFD8BF),
-                    lineHeight = 15.sp
+                    text = if (eqState.currentPreset == EqualizerPreset.CUSTOM) "カスタム" else eqState.currentPreset.displayName.split(" ")[0],
+                    fontSize = 10.sp,
+                    color = Color(0xFF00E5FF),
+                    fontWeight = FontWeight.SemiBold
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    BassCutMode.entries.forEach { mode ->
-                        val isSelected = eqState.bassCutMode == mode
-                        OutlinedButton(
-                            onClick = { viewModel.setEqualizerBassCutMode(mode) },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSelected) Color(0x66FA541C) else Color(0x12FFFFFF)
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFFFF7A45) else Color(0x33FFFFFF)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(34.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = mode.displayName.split(" ")[0],
-                                fontSize = 10.sp,
-                                color = if (isSelected) Color.White else Color(0xFFCCCCCC),
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // 3. EQUALIZER PRESETS
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0x0CFFFFFF),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text("🎵 音質プリセット選択:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Presets Row 1
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        EqualizerPreset.FLAT,
-                        EqualizerPreset.BASS_REDUCE,
-                        EqualizerPreset.BASS_CUT_LIGHT,
-                        EqualizerPreset.VOCAL,
-                        EqualizerPreset.TREBLE_BOOST
-                    ).forEach { preset ->
-                        val isSel = eqState.currentPreset == preset
-                        OutlinedButton(
-                            onClick = { viewModel.setEqualizerPreset(preset) },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSel) Color(0x3300E5FF) else Color(0x0CFFFFFF)
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(32.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = preset.displayName.split(" ")[0],
-                                fontSize = 10.sp,
-                                color = if (isSel) Color(0xFF00E5FF) else Color(0xFFDDDDDD),
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Presets Row 2
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        EqualizerPreset.NIGHT_RELAX,
-                        EqualizerPreset.POP,
-                        EqualizerPreset.ROCK,
-                        EqualizerPreset.CLASSICAL,
-                        EqualizerPreset.BASS_BOOST
-                    ).forEach { preset ->
-                        val isSel = eqState.currentPreset == preset
-                        OutlinedButton(
-                            onClick = { viewModel.setEqualizerPreset(preset) },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSel) Color(0x3300E5FF) else Color(0x0CFFFFFF)
-                            ),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(32.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = preset.displayName.split(" ")[0],
-                                fontSize = 10.sp,
-                                color = if (isSel) Color(0xFF00E5FF) else Color(0xFFDDDDDD),
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // 4. 5-BAND GRAPHIC EQUALIZER SLIDERS
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0x0CFFFFFF),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+        itemsIndexed(listOf("低音(60Hz)", "低中音(230Hz)", "中音(910Hz)", "中高音(3.6kHz)", "高音(14kHz)")) { idx, label ->
+            val gain = eqState.bandGainsDb.getOrElse(idx) { 0 }
+            val effGain = eqState.getEffectiveBandGains().getOrElse(idx) { gain }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0F131D))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("🎚️ 5バンド・手動周波数調整 (-15dB 〜 +15dB):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(label, fontSize = 10.5.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                     Text(
-                        text = if (eqState.currentPreset == EqualizerPreset.CUSTOM) "カスタム設定中" else eqState.currentPreset.displayName,
-                        fontSize = 11.sp,
-                        color = Color(0xFF00E5FF),
-                        fontWeight = FontWeight.SemiBold
+                        text = "${if (gain > 0) "+$gain" else "$gain"} dB ${if (effGain != gain) "(実効: ${effGain}dB)" else ""}",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = if (gain > 0) Color(0xFF00E5FF) else if (gain < 0) Color(0xFFFA541C) else Color(0xFF94A3B8)
                     )
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                val bandDescriptions = listOf(
-                    "重低音・キック (60Hz)" to "小型スピーカーのビビリ・音割れに最も影響",
-                    "低中音・ベース (230Hz)" to "楽器の厚み・ふくよかさ",
-                    "中音・ボーカル (910Hz)" to "歌声・アナウンス・時報の明瞭感",
-                    "中高音・クリア (3.6kHz)" to "音の抜け・繊細さ・アタック感",
-                    "超高音・空気感 (14kHz)" to "シンバル・透明感・伸び"
+                Slider(
+                    value = gain.toFloat(),
+                    onValueChange = { newVal ->
+                        viewModel.setEqualizerBandGain(idx, newVal.toInt())
+                    },
+                    valueRange = -15f..15f,
+                    steps = 29,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Color(0xFF00E5FF),
+                        activeTrackColor = Color(0xFF00E5FF),
+                        inactiveTrackColor = Color(0x33FFFFFF)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(26.dp)
                 )
+            }
+        }
 
-                bandDescriptions.forEachIndexed { index, (label, desc) ->
-                    val gainVal = eqState.bandGainsDb.getOrElse(index) { 0 }
-                    val effectiveGain = effectiveGains.getOrElse(index) { 0 }
+        // 6. Test Audio Player (Listen to EQ effect live)
+        item {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF0F131D),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("🎧 イコライザー効果の試聴・テスト:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("再生しながらリアルタイムにイコライザーや低音を調整できます", fontSize = 9.5.sp, color = Color(0xFF888888))
+                    }
 
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(
+                            onClick = { viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
+                            modifier = Modifier.height(28.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            shape = RoundedCornerShape(6.dp)
                         ) {
-                            Column {
-                                Text(
-                                    text = "${AudioEqualizerManager.getBandFrequencyLabel(index)} - $label",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(desc, fontSize = 9.sp, color = Color(0xFF888888))
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                if (effectiveGain != gainVal) {
-                                    Text(
-                                        text = "(実効: ${if (effectiveGain > 0) "+$effectiveGain" else "$effectiveGain"}dB)",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFFFF7A45)
-                                    )
-                                }
-                                Text(
-                                    text = if (gainVal > 0) "+${gainVal} dB" else "${gainVal} dB",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (gainVal > 0) Color(0xFF00E5FF) else if (gainVal < 0) Color(0xFFFF8080) else Color(0xFFAAAAAA)
-                                )
-                            }
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("時報テスト", fontSize = 9.5.sp, color = Color(0xFF00E5FF))
                         }
 
-                        Slider(
-                            value = gainVal.toFloat(),
-                            onValueChange = { newVal ->
-                                viewModel.setEqualizerBandGain(index, newVal.toInt())
-                            },
-                            valueRange = -15f..15f,
-                            steps = 29,
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF00E5FF),
-                                activeTrackColor = Color(0xFF00E5FF),
-                                inactiveTrackColor = Color(0x33FFFFFF)
-                            ),
-                            modifier = Modifier.height(26.dp)
-                        )
+                        if (musicState.isPlaying) {
+                            Button(
+                                onClick = { viewModel.pauseMusic() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF0055)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF0055)),
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("音楽停止", fontSize = 9.5.sp, color = Color(0xFFFF4081))
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    val tracks = viewModel.customAudioList.value
+                                    if (tracks.isNotEmpty()) {
+                                        viewModel.playMusic(tracks.first(), tracks)
+                                    } else {
+                                        viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34A853)),
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("音楽再生", fontSize = 9.5.sp, color = Color.White)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
 
-        Spacer(modifier = Modifier.height(12.dp))
+/**
+ * Animated equalizer bars reflecting active music playback state inside Settings
+ */
+@Composable
+private fun SettingsVisualizerBars(
+    isPlaying: Boolean,
+    accentColor: Color
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "settings_music_visualizer")
 
-        // 5. TEST AUDIO PLAYER (Listen to EQ effect live)
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0x0CFFFFFF),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18FFFFFF)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
+    val h1 by infiniteTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = if (isPlaying) 0.95f else 0.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bar1"
+    )
+    val h2 by infiniteTransition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = if (isPlaying) 1.0f else 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(320, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bar2"
+    )
+    val h3 by infiniteTransition.animateFloat(
+        initialValue = 0.20f,
+        targetValue = if (isPlaying) 0.85f else 0.20f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(480, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bar3"
+    )
+    val h4 by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = if (isPlaying) 0.90f else 0.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(360, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bar4"
+    )
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.Bottom,
+        modifier = Modifier.height(18.dp)
+    ) {
+        val heights = listOf(h1, h2, h3, h4, h2, h1)
+        heights.forEach { frac ->
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("🎧 イコライザー効果の試聴・テスト:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("再生しながらリアルタイムにイコライザーや低音カットを調整できます", fontSize = 10.sp, color = Color(0xFF888888))
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(
-                        onClick = { viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
-                        modifier = Modifier.height(32.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("時報テスト", fontSize = 10.sp, color = Color(0xFF00E5FF))
-                    }
-
-                    if (musicState.isPlaying) {
-                        Button(
-                            onClick = { viewModel.pauseMusic() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF0055)),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF0055)),
-                            modifier = Modifier.height(32.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("音楽停止", fontSize = 10.sp, color = Color(0xFFFF4081))
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                val tracks = viewModel.customAudioList.value
-                                if (tracks.isNotEmpty()) {
-                                    viewModel.playMusic(tracks.first(), tracks)
-                                } else {
-                                    viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34A853)),
-                            modifier = Modifier.height(32.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("音楽再生", fontSize = 10.sp, color = Color.White)
-                        }
-                    }
-                }
-            }
+                    .width(3.dp)
+                    .fillMaxHeight(fraction = frac)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(accentColor)
+            )
         }
     }
 }

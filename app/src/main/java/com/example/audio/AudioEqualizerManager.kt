@@ -2,6 +2,7 @@ package com.example.audio
 
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import android.util.Log
 import com.example.model.BassCutMode
 import com.example.model.EqualizerPreset
@@ -12,10 +13,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Centralized Audio Equalizer and Speaker Bass Protection Manager
+ * Centralized Audio Equalizer, Hardware BassBoost, and Virtualizer Sound Effects Manager
  * - Applies 5-band graphic equalizer across all audio players in the application
- * - Specifically addresses low-frequency weakness / rattling / distortion on small device speakers via dedicated Bass Cut Filter
- * - Supports hardware AudioFx Equalizer and BassBoost on Android audio sessions
+ * - Hardware BassBoost (0% to 100%) for deep, punchy low-end response
+ * - Hardware Virtualizer (3D Surround Sound) for spatial audio expansion
+ * - Supports presets (Rock, Pop, Jazz, EDM, Bass Boost, Vocal, etc.) and custom sliders
  */
 object AudioEqualizerManager {
     private const val TAG = "AudioEqualizerManager"
@@ -23,9 +25,10 @@ object AudioEqualizerManager {
     private val _equalizerState = MutableStateFlow(EqualizerState())
     val equalizerState: StateFlow<EqualizerState> = _equalizerState.asStateFlow()
 
-    // Map of active audio session IDs to their hardware Equalizer & BassBoost instances
+    // Map of active audio session IDs to their hardware Equalizer, BassBoost, and Virtualizer instances
     private val activeEqualizers = ConcurrentHashMap<Int, Equalizer>()
     private val activeBassBoosts = ConcurrentHashMap<Int, BassBoost>()
+    private val activeVirtualizers = ConcurrentHashMap<Int, Virtualizer>()
 
     // Callback when state changes to persist to preferences
     var onStateChanged: ((EqualizerState) -> Unit)? = null
@@ -37,7 +40,9 @@ object AudioEqualizerManager {
         enabled: Boolean,
         presetName: String,
         bands: List<Int>,
-        bassCutName: String
+        bassBoostStrength: Int = 0,
+        virtualizerStrength: Int = 0,
+        bassCutName: String = "OFF"
     ) {
         val preset = try {
             EqualizerPreset.valueOf(presetName)
@@ -57,6 +62,8 @@ object AudioEqualizerManager {
             isEnabled = enabled,
             currentPreset = preset,
             bandGainsDb = actualBands,
+            bassBoostStrength = bassBoostStrength.coerceIn(0, 1000),
+            virtualizerStrength = virtualizerStrength.coerceIn(0, 1000),
             bassCutMode = bassCut
         )
         _equalizerState.value = newState
@@ -99,13 +106,32 @@ object AudioEqualizerManager {
             activeEqualizers[sessionId] = eq
             applyStateToEqualizer(eq, _equalizerState.value)
 
-            // Try binding BassBoost
+            // Try binding hardware BassBoost
             try {
                 val bb = BassBoost(0, sessionId)
-                bb.enabled = _equalizerState.value.isEnabled && _equalizerState.value.bassCutMode == BassCutMode.OFF
+                val curState = _equalizerState.value
+                val bbEnabled = curState.isEnabled && curState.bassBoostStrength > 0
+                bb.enabled = bbEnabled
+                if (bb.strengthSupported && bbEnabled) {
+                    bb.setStrength(curState.bassBoostStrength.toShort())
+                }
                 activeBassBoosts[sessionId] = bb
             } catch (e: Exception) {
                 Log.d(TAG, "BassBoost not supported on this session: ${e.message}")
+            }
+
+            // Try binding hardware Virtualizer (3D Surround)
+            try {
+                val virt = Virtualizer(0, sessionId)
+                val curState = _equalizerState.value
+                val virtEnabled = curState.isEnabled && curState.virtualizerStrength > 0
+                virt.enabled = virtEnabled
+                if (virt.strengthSupported && virtEnabled) {
+                    virt.setStrength(curState.virtualizerStrength.toShort())
+                }
+                activeVirtualizers[sessionId] = virt
+            } catch (e: Exception) {
+                Log.d(TAG, "Virtualizer not supported on this session: ${e.message}")
             }
 
             Log.d(TAG, "Audio session $sessionId registered to Equalizer (active count: ${activeEqualizers.size})")
@@ -130,6 +156,12 @@ object AudioEqualizerManager {
                 try {
                     bb.enabled = false
                     bb.release()
+                } catch (_: Exception) {}
+            }
+            activeVirtualizers.remove(sessionId)?.let { virt ->
+                try {
+                    virt.enabled = false
+                    virt.release()
                 } catch (_: Exception) {}
             }
             Log.d(TAG, "Audio session $sessionId unregistered from Equalizer")
@@ -158,6 +190,8 @@ object AudioEqualizerManager {
             _equalizerState.value.copy(
                 currentPreset = preset,
                 bandGainsDb = preset.bandGainsDb,
+                bassBoostStrength = preset.bassBoostStrength,
+                virtualizerStrength = preset.virtualizerStrength,
                 bassCutMode = preset.bassCutMode
             )
         }
@@ -186,7 +220,35 @@ object AudioEqualizerManager {
     }
 
     /**
-     * Adjust Bass Cut Filter mode
+     * Set Bass Boost slider strength (0 to 1000)
+     */
+    fun setBassBoostStrength(strength: Int) {
+        val clamped = strength.coerceIn(0, 1000)
+        val updated = _equalizerState.value.copy(
+            bassBoostStrength = clamped,
+            currentPreset = EqualizerPreset.CUSTOM
+        )
+        _equalizerState.value = updated
+        applyStateToAllEqualizers(updated)
+        onStateChanged?.invoke(updated)
+    }
+
+    /**
+     * Set Virtualizer / 3D Surround sound slider strength (0 to 1000)
+     */
+    fun setVirtualizerStrength(strength: Int) {
+        val clamped = strength.coerceIn(0, 1000)
+        val updated = _equalizerState.value.copy(
+            virtualizerStrength = clamped,
+            currentPreset = EqualizerPreset.CUSTOM
+        )
+        _equalizerState.value = updated
+        applyStateToAllEqualizers(updated)
+        onStateChanged?.invoke(updated)
+    }
+
+    /**
+     * Adjust Bass Cut Filter mode (optional protection)
      */
     fun setBassCutMode(mode: BassCutMode) {
         val updated = _equalizerState.value.copy(bassCutMode = mode)
@@ -208,9 +270,19 @@ object AudioEqualizerManager {
         }
         activeBassBoosts.values.forEach { bb ->
             try {
-                bb.enabled = state.isEnabled && state.bassCutMode == BassCutMode.OFF && state.currentPreset == EqualizerPreset.BASS_BOOST
-                if (bb.strengthSupported && bb.enabled) {
-                    bb.setStrength(600.toShort())
+                val shouldEnable = state.isEnabled && state.bassBoostStrength > 0
+                bb.enabled = shouldEnable
+                if (bb.strengthSupported && shouldEnable) {
+                    bb.setStrength(state.bassBoostStrength.toShort())
+                }
+            } catch (_: Exception) {}
+        }
+        activeVirtualizers.values.forEach { virt ->
+            try {
+                val shouldEnable = state.isEnabled && state.virtualizerStrength > 0
+                virt.enabled = shouldEnable
+                if (virt.strengthSupported && shouldEnable) {
+                    virt.setStrength(state.virtualizerStrength.toShort())
                 }
             } catch (_: Exception) {}
         }
@@ -273,5 +345,13 @@ object AudioEqualizerManager {
             } catch (_: Exception) {}
         }
         activeBassBoosts.clear()
+
+        activeVirtualizers.forEach { (_, virt) ->
+            try {
+                virt.enabled = false
+                virt.release()
+            } catch (_: Exception) {}
+        }
+        activeVirtualizers.clear()
     }
 }

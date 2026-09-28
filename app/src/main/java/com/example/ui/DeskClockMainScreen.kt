@@ -74,7 +74,10 @@ import com.example.ui.clockfaces.TypographicBauhausClockView
 import com.example.ui.components.AlarmRingingOverlay
 import com.example.ui.components.BackgroundVideoLayer
 import com.example.ui.components.ControlDock
+import com.example.ui.components.DeskStopwatchDialog
+import com.example.ui.components.DeskStopwatchHudBanner
 import com.example.ui.components.DeskTimerDialog
+import com.example.ui.components.DeskTimerHudBanner
 import com.example.ui.components.EewFullScreenOverlay
 import com.example.ui.components.EspSensorBottomBar
 import com.example.ui.components.FireAlertOverlay
@@ -104,6 +107,7 @@ fun DeskClockMainScreen(
     val preferences by viewModel.preferences.collectAsState()
     val timeState by viewModel.timeState.collectAsState()
     val timerState by viewModel.timerState.collectAsState()
+    val stopwatchState by viewModel.stopwatchState.collectAsState()
     val weatherState by viewModel.weatherState.collectAsState()
     val isWeatherRefreshing by viewModel.isWeatherRefreshing.collectAsState()
     val scheduledChimes by viewModel.scheduledChimes.collectAsState()
@@ -148,8 +152,9 @@ fun DeskClockMainScreen(
     var showSettingsDialog by remember { mutableStateOf(false) }
     var currentSettingsTab by remember { mutableStateOf(SettingsTab.FACE_PALETTE) }
 
-    // Desk Timer Dialog state
+    // Desk Timer & Stopwatch Dialog states
     var showTimerDialog by remember { mutableStateOf(false) }
+    var showStopwatchDialog by remember { mutableStateOf(false) }
 
     // Kiosk lock notification banner
     var kioskWarningText by remember { mutableStateOf<String?>(null) }
@@ -380,6 +385,8 @@ fun DeskClockMainScreen(
                     preferences = preferences,
                     ipCameraStatus = ipCameraStatus,
                     timerSeconds = timerState.remainingSeconds,
+                    isStopwatchRunning = stopwatchState.isRunning,
+                    stopwatchElapsedMillis = stopwatchState.elapsedMillis,
                     isEspConnected = espSensorData.isConnected,
                     isMusicPlaying = musicPlayerState.isPlaying,
                     isVoiceListening = voiceAssistantState.isActivelyListening || voiceAssistantState.isSpeaking,
@@ -388,6 +395,7 @@ fun DeskClockMainScreen(
                         showSettingsDialog = true
                     },
                     onOpenTimer = { showTimerDialog = true },
+                    onOpenStopwatch = { showStopwatchDialog = true },
                     onOpenMusicPlayer = { showMusicPlayerDialog = true },
                     onOpenIrRemote = { showIrQuickSheet = true },
                     onTriggerVoiceAssistant = {
@@ -476,13 +484,34 @@ fun DeskClockMainScreen(
             }
         }
 
-        // 4. Bottom Section: Media Playback Banner + Large Sensor Display
+        // 4. Bottom Section: Timer HUD Banner + Stopwatch HUD Banner + Media Playback Banner + Large Sensor Display
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Desk Stopwatch HUD Banner
+            DeskStopwatchHudBanner(
+                stopwatchState = stopwatchState,
+                accentColor = preferences.colorPalette.primary,
+                onOpenStopwatchDialog = { showStopwatchDialog = true },
+                onTogglePause = { viewModel.toggleStopwatch() },
+                onRecordLap = { viewModel.recordStopwatchLap() },
+                onReset = { viewModel.resetStopwatch() }
+            )
+
+            // Prominent Desk Timer HUD Banner (User Requested: タイマー動いてるときはできれば少し大きくタイマーを時計の何処かに表示)
+            DeskTimerHudBanner(
+                timerState = timerState,
+                accentColor = preferences.colorPalette.primary,
+                onOpenTimerDialog = { showTimerDialog = true },
+                onTogglePause = { viewModel.toggleTimerPause() },
+                onAddMinute = { viewModel.addTimerMinutes(1) },
+                onReset = { viewModel.resetTimer() },
+                onDismissFinished = { viewModel.dismissTimerFinished() }
+            )
+
             // Media Playback HUD Banner (Displayed right above the sensor bar / humidity area)
             MediaPlaybackHudBanner(
                 activeVideo = activeBackgroundVideo,
@@ -586,9 +615,39 @@ fun DeskClockMainScreen(
                     showTimerDialog = false
                     onUserInteraction()
                 },
+                onSetTimerDetails = { h, m, s, lbl, sound, repeat, start ->
+                    viewModel.setTimerDetails(h, m, s, lbl, sound, repeat, start)
+                },
                 onAddMinutes = { viewModel.addTimerMinutes(it) },
+                onAddSeconds = { viewModel.addTimerSeconds(it) },
                 onTogglePause = { viewModel.toggleTimerPause() },
-                onReset = { viewModel.resetTimer() }
+                onReset = { viewModel.resetTimer() },
+                onUpdateSettings = { lbl, sound, rep ->
+                    viewModel.updateTimerSettings(lbl, sound, rep)
+                },
+                onSwitchToStopwatch = {
+                    showTimerDialog = false
+                    showStopwatchDialog = true
+                }
+            )
+        }
+
+        // 7.5 Desk Stopwatch Dialog
+        if (showStopwatchDialog) {
+            DeskStopwatchDialog(
+                stopwatchState = stopwatchState,
+                preferences = preferences,
+                onDismiss = {
+                    showStopwatchDialog = false
+                    onUserInteraction()
+                },
+                onToggleStartPause = { viewModel.toggleStopwatch() },
+                onRecordLap = { viewModel.recordStopwatchLap() },
+                onReset = { viewModel.resetStopwatch() },
+                onSwitchToTimer = {
+                    showStopwatchDialog = false
+                    showTimerDialog = true
+                }
             )
         }
 

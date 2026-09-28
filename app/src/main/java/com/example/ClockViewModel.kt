@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import androidx.core.content.FileProvider
@@ -49,6 +50,7 @@ import com.example.model.CustomVideoItem
 import com.example.model.EewLiveState
 import com.example.model.EewTestScenario
 import com.example.model.EspSensorData
+import com.example.model.BleDeviceInfo
 import com.example.model.FireAlertInfo
 import com.example.model.PhysicalButtonEvent
 import com.example.model.ScheduledChime
@@ -98,12 +100,69 @@ data class CurrentTimeState(
     val batteryPercent: Int = 92
 )
 
+data class StopwatchLap(
+    val lapIndex: Int,
+    val lapTimeMillis: Long,
+    val overallTimeMillis: Long,
+    val isBest: Boolean = false,
+    val isWorst: Boolean = false
+) {
+    val formattedLapTime: String get() = formatStopwatchTime(lapTimeMillis)
+    val formattedOverallTime: String get() = formatStopwatchTime(overallTimeMillis)
+}
+
+data class DeskStopwatchState(
+    val elapsedMillis: Long = 0L,
+    val isRunning: Boolean = false,
+    val laps: List<StopwatchLap> = emptyList()
+) {
+    val formattedTime: String get() = formatStopwatchTime(elapsedMillis)
+    val minutes: Int get() = ((elapsedMillis / 1000) / 60).toInt()
+    val seconds: Int get() = ((elapsedMillis / 1000) % 60).toInt()
+    val hundredths: Int get() = ((elapsedMillis % 1000) / 10).toInt()
+    val hours: Int get() = ((elapsedMillis / 1000) / 3600).toInt()
+}
+
+fun formatStopwatchTime(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    val hundredths = (millis % 1000) / 10
+    return if (hours > 0) {
+        String.format(java.util.Locale.US, "%02d:%02d:%02d.%02d", hours, minutes, seconds, hundredths)
+    } else {
+        String.format(java.util.Locale.US, "%02d:%02d.%02d", minutes, seconds, hundredths)
+    }
+}
+
 data class DeskTimerState(
     val remainingSeconds: Int = 0,
     val initialSeconds: Int = 0,
     val isRunning: Boolean = false,
-    val isFinished: Boolean = false
-)
+    val isFinished: Boolean = false,
+    val label: String = "タイマー",
+    val chimeSound: ChimeSound = ChimeSound.CRYSTAL_BELL,
+    val autoRepeat: Boolean = false
+) {
+    val progressFraction: Float
+        get() = if (initialSeconds > 0) {
+            (remainingSeconds.toFloat() / initialSeconds.toFloat()).coerceIn(0f, 1f)
+        } else 0f
+
+    val hours: Int get() = remainingSeconds / 3600
+    val minutes: Int get() = (remainingSeconds % 3600) / 60
+    val seconds: Int get() = remainingSeconds % 60
+
+    val formattedTime: String
+        get() {
+            return if (hours > 0) {
+                String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+            } else {
+                String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
+            }
+        }
+}
 
 class ClockViewModel(application: Application) : AndroidViewModel(application) {
     private val prefsManager = ClockPreferencesManager(application)
@@ -130,6 +189,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _timerState = MutableStateFlow(DeskTimerState())
     val timerState: StateFlow<DeskTimerState> = _timerState.asStateFlow()
+
+    // --- Desk Stopwatch (ストップウォッチ) State ---
+    private val _stopwatchState = MutableStateFlow(DeskStopwatchState())
+    val stopwatchState: StateFlow<DeskStopwatchState> = _stopwatchState.asStateFlow()
+
+    private var stopwatchJob: Job? = null
+    private var stopwatchBaseTime: Long = 0L
+    private var stopwatchAccumulatedTime: Long = 0L
 
     // --- Alarm Clock (目覚まし時計) State ---
     private val _isAlarmRinging = MutableStateFlow(false)
@@ -223,6 +290,8 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     // --- ESP8266 / ESP32-C3 AHT20+BMP280 Sensor Engine ---
     private val espSensorManager = EspSensorManager(application)
     val espSensorData: StateFlow<EspSensorData> = espSensorManager.sensorData
+    val bleBondedDevices: StateFlow<List<BleDeviceInfo>> = espSensorManager.bleSensorManager.bondedDevices
+    val bleScannedDevices: StateFlow<List<BleDeviceInfo>> = espSensorManager.bleSensorManager.scannedDevices
 
     // --- ESP32-C3 Smart IR Remote (学習・送受信・家電制御) ---
     private val irRemoteManager = IrRemoteManager(
@@ -369,6 +438,22 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 override fun setAntiNoiseSilence(enabled: Boolean) {
                     this@ClockViewModel.setAntiNoiseSilenceEnabled(enabled)
                 }
+
+                override fun startStopwatch() {
+                    this@ClockViewModel.startStopwatch()
+                }
+
+                override fun pauseStopwatch() {
+                    this@ClockViewModel.pauseStopwatch()
+                }
+
+                override fun resetStopwatch() {
+                    this@ClockViewModel.resetStopwatch()
+                }
+
+                override fun recordStopwatchLap() {
+                    this@ClockViewModel.recordStopwatchLap()
+                }
             }
         ).apply {
             val pref = preferences.value
@@ -486,6 +571,13 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Real-time synchronization of Music Player state with Web Dashboard via WebSocket
+        viewModelScope.launch {
+            MusicPlayerManager.playerState.collect {
+                ipCameraServer?.broadcastMusicPlayerUpdate()
+            }
+        }
+
         // Initialize Master Equalizer from saved preferences
         AudioEqualizerManager.initFromPreferences(
             enabled = preferences.value.equalizerEnabled,
@@ -497,13 +589,17 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 preferences.value.equalizerBand3,
                 preferences.value.equalizerBand4
             ),
+            bassBoostStrength = preferences.value.equalizerBassBoostStrength,
+            virtualizerStrength = preferences.value.equalizerVirtualizerStrength,
             bassCutName = preferences.value.equalizerBassCutMode
         )
         AudioEqualizerManager.onStateChanged = { eqState ->
             prefsManager.updateEqualizerPreset(
                 preset = eqState.currentPreset.id,
                 bands = eqState.bandGainsDb,
-                bassCutMode = eqState.bassCutMode.id
+                bassCutMode = eqState.bassCutMode.id,
+                bassBoost = eqState.bassBoostStrength,
+                virtualizer = eqState.virtualizerStrength
             )
         }
 
@@ -544,8 +640,20 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         prefsManager.updateEqualizerPreset(
             preset = preset.id,
             bands = preset.bandGainsDb,
-            bassCutMode = preset.bassCutMode.id
+            bassCutMode = preset.bassCutMode.id,
+            bassBoost = preset.bassBoostStrength,
+            virtualizer = preset.virtualizerStrength
         )
+    }
+
+    fun setEqualizerBassBoost(strength: Int) {
+        AudioEqualizerManager.setBassBoostStrength(strength)
+        prefsManager.updateEqualizerBassBoost(strength)
+    }
+
+    fun setEqualizerVirtualizer(strength: Int) {
+        AudioEqualizerManager.setVirtualizerStrength(strength)
+        prefsManager.updateEqualizerVirtualizer(strength)
     }
 
     fun setEqualizerBandGain(bandIndex: Int, gainDb: Int) {
@@ -599,6 +707,20 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retryEspSensorConnection() {
         espSensorManager.retryConnection()
+    }
+
+    fun connectBleDevice(device: BleDeviceInfo) {
+        espSensorManager.bleSensorManager.connectToAddress(device.address)
+        updateEspSensorPreferences(
+            enabled = true,
+            mode = "BLE",
+            bleDeviceName = device.name
+        )
+    }
+
+    fun refreshBleDevices() {
+        espSensorManager.bleSensorManager.refreshBondedDevices()
+        espSensorManager.bleSensorManager.retryConnection()
     }
 
     fun getArduinoSketchCode(): String {
@@ -1547,13 +1669,21 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 if (current.isRunning && current.remainingSeconds > 0) {
                     val next = current.remainingSeconds - 1
                     if (next == 0) {
-                        _timerState.value = current.copy(
-                            remainingSeconds = 0,
-                            isRunning = false,
-                            isFinished = true
-                        )
-                        // Play alert sound for timer finished
-                        ChimeSynthesizer.playChime(ChimeSound.CRYSTAL_BELL, preferences.value.chimeVolume)
+                        // Play configured chime sound for timer finished
+                        ChimeSynthesizer.playChime(current.chimeSound, preferences.value.chimeVolume)
+                        if (current.autoRepeat && current.initialSeconds > 0) {
+                            _timerState.value = current.copy(
+                                remainingSeconds = current.initialSeconds,
+                                isRunning = true,
+                                isFinished = false
+                            )
+                        } else {
+                            _timerState.value = current.copy(
+                                remainingSeconds = 0,
+                                isRunning = false,
+                                isFinished = true
+                            )
+                        }
                     } else {
                         _timerState.value = current.copy(remainingSeconds = next)
                     }
@@ -1562,7 +1692,42 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Timer controls
+    // Detailed timer controls (User Requested: タイマーをもっと詳細に設定できるように)
+    fun setTimerDetails(
+        hours: Int,
+        minutes: Int,
+        seconds: Int,
+        label: String = "タイマー",
+        chimeSound: ChimeSound = ChimeSound.CRYSTAL_BELL,
+        autoRepeat: Boolean = false,
+        startImmediately: Boolean = true
+    ) {
+        val totalSec = (hours * 3600) + (minutes * 60) + seconds
+        if (totalSec <= 0) return
+        _timerState.value = DeskTimerState(
+            remainingSeconds = totalSec,
+            initialSeconds = totalSec,
+            isRunning = startImmediately,
+            isFinished = false,
+            label = label.ifBlank { "タイマー" },
+            chimeSound = chimeSound,
+            autoRepeat = autoRepeat
+        )
+    }
+
+    fun updateTimerSettings(
+        label: String? = null,
+        chimeSound: ChimeSound? = null,
+        autoRepeat: Boolean? = null
+    ) {
+        val cur = _timerState.value
+        _timerState.value = cur.copy(
+            label = label ?: cur.label,
+            chimeSound = chimeSound ?: cur.chimeSound,
+            autoRepeat = autoRepeat ?: cur.autoRepeat
+        )
+    }
+
     fun setTimerSeconds(seconds: Int) {
         _timerState.value = DeskTimerState(
             remainingSeconds = seconds,
@@ -1585,6 +1750,17 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    fun addTimerSeconds(seconds: Int) {
+        val current = _timerState.value
+        val newRem = (current.remainingSeconds + seconds).coerceAtLeast(0)
+        val newInit = maxOf(current.initialSeconds, newRem)
+        _timerState.value = current.copy(
+            remainingSeconds = newRem,
+            initialSeconds = newInit,
+            isFinished = false
+        )
+    }
+
     fun toggleTimerPause() {
         val current = _timerState.value
         if (current.remainingSeconds > 0) {
@@ -1598,6 +1774,81 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissTimerFinished() {
         _timerState.value = _timerState.value.copy(isFinished = false)
+    }
+
+    // --- Desk Stopwatch Controls (ストップウォッチ操作) ---
+    fun startStopwatch() {
+        if (_stopwatchState.value.isRunning) return
+        stopwatchBaseTime = SystemClock.elapsedRealtime()
+        _stopwatchState.value = _stopwatchState.value.copy(isRunning = true)
+
+        stopwatchJob?.cancel()
+        stopwatchJob = viewModelScope.launch(Dispatchers.Default) {
+            while (isActive && _stopwatchState.value.isRunning) {
+                val now = SystemClock.elapsedRealtime()
+                val currentElapsed = stopwatchAccumulatedTime + (now - stopwatchBaseTime)
+                _stopwatchState.value = _stopwatchState.value.copy(elapsedMillis = currentElapsed)
+                delay(16) // 高精度 1/100秒表示 (約60fps更新)
+            }
+        }
+    }
+
+    fun pauseStopwatch() {
+        if (!_stopwatchState.value.isRunning) return
+        val now = SystemClock.elapsedRealtime()
+        stopwatchAccumulatedTime += (now - stopwatchBaseTime)
+        stopwatchJob?.cancel()
+        stopwatchJob = null
+        _stopwatchState.value = _stopwatchState.value.copy(
+            elapsedMillis = stopwatchAccumulatedTime,
+            isRunning = false
+        )
+    }
+
+    fun toggleStopwatch() {
+        if (_stopwatchState.value.isRunning) {
+            pauseStopwatch()
+        } else {
+            startStopwatch()
+        }
+    }
+
+    fun recordStopwatchLap() {
+        val current = _stopwatchState.value
+        val totalTime = current.elapsedMillis
+        if (totalTime <= 0L) return
+
+        val lastOverall = current.laps.firstOrNull()?.overallTimeMillis ?: 0L
+        val lapTime = (totalTime - lastOverall).coerceAtLeast(0L)
+        val nextIndex = current.laps.size + 1
+
+        val newLap = StopwatchLap(
+            lapIndex = nextIndex,
+            lapTimeMillis = lapTime,
+            overallTimeMillis = totalTime
+        )
+
+        val updatedLaps = listOf(newLap) + current.laps
+
+        val bestLapTime = updatedLaps.minOfOrNull { it.lapTimeMillis }
+        val worstLapTime = if (updatedLaps.size >= 2) updatedLaps.maxOfOrNull { it.lapTimeMillis } else null
+
+        val finalLaps = updatedLaps.map { lap ->
+            lap.copy(
+                isBest = updatedLaps.size >= 2 && lap.lapTimeMillis == bestLapTime,
+                isWorst = updatedLaps.size >= 2 && lap.lapTimeMillis == worstLapTime && bestLapTime != worstLapTime
+            )
+        }
+
+        _stopwatchState.value = current.copy(laps = finalLaps)
+    }
+
+    fun resetStopwatch() {
+        stopwatchJob?.cancel()
+        stopwatchJob = null
+        stopwatchAccumulatedTime = 0L
+        stopwatchBaseTime = 0L
+        _stopwatchState.value = DeskStopwatchState()
     }
 
     // Preference mutations

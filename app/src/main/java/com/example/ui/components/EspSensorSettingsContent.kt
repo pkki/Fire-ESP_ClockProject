@@ -78,6 +78,8 @@ fun EspSensorSettingsContent(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val sensorData by viewModel.espSensorData.collectAsState()
+    val bondedDevices by viewModel.bleBondedDevices.collectAsState()
+    val scannedDevices by viewModel.bleScannedDevices.collectAsState()
 
     var isFlashingOta by remember { mutableStateOf(false) }
     var otaStatusMessage by remember { mutableStateOf<String?>(null) }
@@ -460,10 +462,133 @@ fun EspSensorSettingsContent(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "※ ESP32-C3の電源を入れると、アプリが自動でスキャンしペアリング不要で直接接続します。",
+                        text = "※ ESP32の電源を入れると、アプリが自動でスキャンしペアリング不要で直接接続します。Android設定でペアリング済みの場合も自動検出されます。",
                         color = Color(0xFF38BDF8),
                         fontSize = 11.sp
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Bluetooth Device List (Bonded & Scanned)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF0F131D))
+                            .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(10.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.Bluetooth,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "検出・ペアリング済みBluetoothデバイス",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                            Button(
+                                onClick = { viewModel.refreshBleDevices() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0x2200E5FF)),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("再スキャン", fontSize = 10.sp, color = Color(0xFF00E5FF))
+                            }
+                        }
+
+                        val allDevices = (bondedDevices + scannedDevices).distinctBy { it.address }
+                        if (allDevices.isEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "検出中のデバイスはありません。ESP32の電源を入れて「再スキャン」を押すか、Android設定のBluetoothでペアリングしてください。",
+                                fontSize = 10.5.sp,
+                                color = Color(0xFF94A3B8),
+                                lineHeight = 14.sp
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                allDevices.forEach { dev ->
+                                    val isConnectedDev = sensorData.isConnected && dev.isConnected
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isConnectedDev) Color(0x3300E5FF) else Color(0x14FFFFFF))
+                                            .border(
+                                                1.dp,
+                                                if (isConnectedDev) Color(0xFF00E5FF) else Color(0x22FFFFFF),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(
+                                                    text = dev.name,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = Color.White
+                                                )
+                                                if (dev.isBonded) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(Color(0x3338BDF8))
+                                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    ) {
+                                                        Text("ペアリング済", fontSize = 9.sp, color = Color(0xFF38BDF8))
+                                                    }
+                                                }
+                                                if (dev.rssi != null) {
+                                                    Text("${dev.rssi}dBm", fontSize = 9.5.sp, color = Color(0xFF888888))
+                                                }
+                                            }
+                                            Text(
+                                                text = dev.address,
+                                                fontSize = 9.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = Color(0xFF94A3B8)
+                                            )
+                                        }
+
+                                        Button(
+                                            onClick = { viewModel.connectBleDevice(dev) },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (isConnectedDev) Color(0xFF059669) else Color(0xFF00E5FF)
+                                            ),
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(28.dp),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isConnectedDev) "接続中" else "接続",
+                                                fontSize = 10.5.sp,
+                                                color = if (isConnectedDev) Color.White else Color.Black,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else if (isUsbMode) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(

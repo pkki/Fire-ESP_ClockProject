@@ -44,6 +44,10 @@ interface VoiceCommandCallbacks {
     fun setBassCutMode(mode: com.example.model.BassCutMode)
     fun resetEqualizer()
     fun setAntiNoiseSilence(enabled: Boolean)
+    fun startStopwatch()
+    fun pauseStopwatch()
+    fun resetStopwatch()
+    fun recordStopwatchLap()
 }
 
 /**
@@ -181,7 +185,24 @@ object VoiceCommandProcessor {
             return VoiceCommandResult(true, "動画再生を終了しました。", "⏹ 動画終了", "VIDEO_STOP")
         }
 
-        // 5. Timer and Alarm (タイマー・アラーム)
+        // 5. Timer, Stopwatch, and Alarm (タイマー・ストップウォッチ・アラーム)
+        if (matchesAny(text, "ストップウォッチスタート", "ストップウォッチ開始", "ストップウォッチつけて", "ストップウォッチ動かして", "タイム測って", "時間測って", "時間計測開始")) {
+            callbacks.startStopwatch()
+            return VoiceCommandResult(true, "ストップウォッチを開始しました。", "⏱️ ストップウォッチ開始", "STOPWATCH_START")
+        }
+        if (matchesAny(text, "ストップウォッチストップ", "ストップウォッチ停止", "ストップウォッチ一時停止", "ストップウォッチ止めて", "タイム止めて", "計測停止")) {
+            callbacks.pauseStopwatch()
+            return VoiceCommandResult(true, "ストップウォッチを一時停止しました。", "⏸️ ストップウォッチ一時停止", "STOPWATCH_PAUSE")
+        }
+        if (matchesAny(text, "ストップウォッチリセット", "ストップウォッチクリア", "ストップウォッチ初期化", "タイムリセット")) {
+            callbacks.resetStopwatch()
+            return VoiceCommandResult(true, "ストップウォッチをリセットしました。", "🔄 ストップウォッチリセット", "STOPWATCH_RESET")
+        }
+        if (matchesAny(text, "ラップ", "ラップ記録", "ラップタイム", "スプリット")) {
+            callbacks.recordStopwatchLap()
+            return VoiceCommandResult(true, "ラップタイムを記録しました。", "🚩 ラップ記録", "STOPWATCH_LAP")
+        }
+
         val timerMatch = Regex("(\\d+)(分|秒)(タイマー|測って|計って|カウントダウン)?").find(text)
         if (timerMatch != null) {
             val amount = timerMatch.groupValues[1].toIntOrNull() ?: 3

@@ -72,6 +72,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,12 +84,20 @@ import com.example.model.ClockPreferencesState
 import com.example.model.CustomAudioItem
 import kotlin.math.roundToInt
 
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Videocam
+import com.example.model.ChimeVideoSourceType
+import com.example.model.CustomVideoItem
+import com.example.model.VideoDisplayLayer
 import com.example.model.EqualizerPreset
 import com.example.model.BassCutMode
 import com.example.audio.AudioEqualizerManager
 
 enum class MusicRightTab(val label: String) {
     PLAYLIST("プレイリスト"),
+    VIDEO("動画・MV"),
     EQUALIZER("音質・イコライザー")
 }
 
@@ -100,11 +109,15 @@ fun MusicPlayerDialog(
 ) {
     val context = LocalContext.current
     val customAudioList by viewModel.customAudioList.collectAsState()
+    val customVideoList by viewModel.customVideoList.collectAsState()
     val playerState by viewModel.musicPlayerState.collectAsState()
     val eqState by viewModel.equalizerState.collectAsState()
     val isSilencePlaying by viewModel.isSilenceKeepAlivePlaying.collectAsState()
     val accentColor = preferences.colorPalette.primary
     var rightTab by remember { mutableStateOf(MusicRightTab.PLAYLIST) }
+
+    var isVideoMode by remember { mutableStateOf(false) }
+    var activeVideoItem by remember { mutableStateOf<CustomVideoItem?>(null) }
 
     // Audio file picker launcher
     val audioPickerLauncher = rememberLauncherForActivityResult(
@@ -117,6 +130,25 @@ fun MusicPlayerDialog(
                     val updated = viewModel.customAudioList.value
                     if (updated.isNotEmpty() && !playerState.isPlaying) {
                         viewModel.playMusic(updated.last(), updated)
+                    }
+                }
+            }
+        }
+    }
+
+    // Video file picker launcher (User Requested: 音楽プレイヤーに動画もお願い)
+    val videoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.importCustomVideo(uri) { success, msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                if (success) {
+                    val updated = viewModel.customVideoList.value
+                    if (updated.isNotEmpty()) {
+                        activeVideoItem = updated.last()
+                        isVideoMode = true
+                        rightTab = MusicRightTab.VIDEO
                     }
                 }
             }
@@ -205,6 +237,27 @@ fun MusicPlayerDialog(
                             )
                         }
 
+                        Button(
+                            onClick = { videoPickerLauncher.launch("video/*") },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x22F59E0B)),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "動画を追加",
+                                color = Color(0xFFF59E0B),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
                         IconButton(
                             onClick = onDismiss,
                             modifier = Modifier
@@ -246,49 +299,153 @@ fun MusicPlayerDialog(
                                 .padding(18.dp),
                             verticalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Animated Visualizer Hero Box
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(130.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                accentColor.copy(alpha = 0.20f),
-                                                Color(0xFF0B0E17)
+                            // Animated Visualizer or Embedded Video Player Hero Box
+                            if (isVideoMode && activeVideoItem != null) {
+                                val currentVid = activeVideoItem!!
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(130.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(Color.Black)
+                                            .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CustomVideoTexturePlayer(
+                                            videoPath = currentVid.filePath,
+                                            playAudio = true,
+                                            volume = playerState.volume,
+                                            durationSeconds = -1,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+
+                                        // Overlay Title Tag
+                                        Row(
+                                            modifier = Modifier
+                                                .align(Alignment.TopStart)
+                                                .padding(6.dp)
+                                                .background(Color(0xCC000000), RoundedCornerShape(6.dp))
+                                                .padding(horizontal = 8.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(13.dp))
+                                            Text(
+                                                text = currentVid.name,
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    // Video Controls Row
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                viewModel.previewBackgroundVideo(
+                                                    ChimeVideoSourceType.CUSTOM_FILE,
+                                                    customVideoPath = currentVid.filePath,
+                                                    customVideoName = currentVid.name,
+                                                    durationSeconds = -2,
+                                                    displayLayer = VideoDisplayLayer.FOREGROUND
+                                                )
+                                                Toast.makeText(context, "前面全画面で動画を再生中（停止するまで継続）", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)
+                                        ) {
+                                            Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text("全画面再生", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                viewModel.previewBackgroundVideo(
+                                                    ChimeVideoSourceType.CUSTOM_FILE,
+                                                    customVideoPath = currentVid.filePath,
+                                                    customVideoName = currentVid.name,
+                                                    durationSeconds = -2,
+                                                    displayLayer = VideoDisplayLayer.BACKGROUND
+                                                )
+                                                Toast.makeText(context, "時計の背景で動画を再生中", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FFFFFF), contentColor = Color.White),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp)
+                                        ) {
+                                            Text("背景再生", fontSize = 11.sp)
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                isVideoMode = false
+                                                activeVideoItem = null
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF), contentColor = Color(0xFFCBD5E1)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("音楽へ", fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(130.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    accentColor.copy(alpha = 0.20f),
+                                                    Color(0xFF0B0E17)
+                                                )
                                             )
                                         )
-                                    )
-                                    .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    MusicVisualizerBars(
-                                        isPlaying = playerState.isPlaying,
-                                        accentColor = accentColor
-                                    )
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text(
-                                        text = playerState.currentTrack?.name ?: if (customAudioList.isNotEmpty()) "曲を選択して再生" else "音楽ファイルがありません",
-                                        color = Color.White,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = when {
-                                            playerState.isPlaying -> "再生中 • ${playerState.repeatMode.label}"
-                                            playerState.isPaused -> "一時停止中"
-                                            else -> "停止中"
-                                        },
-                                        color = if (playerState.isPlaying) accentColor else Color(0xFF94A3B8),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                                        .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        MusicVisualizerBars(
+                                            isPlaying = playerState.isPlaying,
+                                            accentColor = accentColor
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = playerState.currentTrack?.name ?: if (customAudioList.isNotEmpty()) "曲を選択して再生" else "音楽ファイルがありません",
+                                            color = Color.White,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(horizontal = 16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = when {
+                                                playerState.isPlaying -> "再生中 • ${playerState.repeatMode.label}"
+                                                playerState.isPaused -> "一時停止中"
+                                                else -> "停止中"
+                                            },
+                                            color = if (playerState.isPlaying) accentColor else Color(0xFF94A3B8),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 }
                             }
 
@@ -572,14 +729,22 @@ fun MusicPlayerDialog(
                                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                                         ) {
                                             Icon(
-                                                imageVector = if (tab == MusicRightTab.PLAYLIST) Icons.Default.QueueMusic else Icons.Default.GraphicEq,
+                                                imageVector = when (tab) {
+                                                    MusicRightTab.PLAYLIST -> Icons.Default.QueueMusic
+                                                    MusicRightTab.VIDEO -> Icons.Default.Videocam
+                                                    MusicRightTab.EQUALIZER -> Icons.Default.GraphicEq
+                                                },
                                                 contentDescription = null,
                                                 tint = if (isSel) accentColor else Color(0xFF94A3B8),
                                                 modifier = Modifier.size(14.dp)
                                             )
                                             Text(
-                                                text = if (tab == MusicRightTab.PLAYLIST) "楽曲 (${customAudioList.size})" else tab.label,
-                                                fontSize = 11.5.sp,
+                                                text = when (tab) {
+                                                    MusicRightTab.PLAYLIST -> "楽曲 (${customAudioList.size})"
+                                                    MusicRightTab.VIDEO -> "動画 (${customVideoList.size})"
+                                                    MusicRightTab.EQUALIZER -> tab.label
+                                                },
+                                                fontSize = 11.sp,
                                                 fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
                                                 color = if (isSel) Color.White else Color(0xFF94A3B8)
                                             )
@@ -718,6 +883,191 @@ fun MusicPlayerDialog(
                                                         tint = if (isCurrent) accentColor else Color(0xFF94A3B8),
                                                         modifier = Modifier.size(18.dp)
                                                     )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (rightTab == MusicRightTab.VIDEO) {
+                                // VIDEO TAB CONTENT (User Requested: 音楽プレイヤーに動画もお願い)
+                                if (customVideoList.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0x0AFFFFFF))
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                imageVector = Icons.Default.Videocam,
+                                                contentDescription = null,
+                                                tint = Color(0xFF475569),
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "登録された動画がありません",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF94A3B8)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "上部の「動画を追加」からMP4/MKV等の動画ファイルを追加してください",
+                                                fontSize = 10.5.sp,
+                                                color = Color(0xFF64748B),
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Button(
+                                                onClick = { videoPickerLauncher.launch("video/*") },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("動画を追加", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        itemsIndexed(customVideoList) { _, video ->
+                                            val isPlayingInPlayer = isVideoMode && activeVideoItem?.filePath == video.filePath
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .background(if (isPlayingInPlayer) Color(0xFFF59E0B).copy(alpha = 0.15f) else Color(0x10FFFFFF))
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = if (isPlayingInPlayer) Color(0xFFF59E0B).copy(alpha = 0.4f) else Color.Transparent,
+                                                        shape = RoundedCornerShape(10.dp)
+                                                    )
+                                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                            ) {
+                                                Column(modifier = Modifier.fillMaxWidth()) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.weight(1f),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(32.dp)
+                                                                    .clip(RoundedCornerShape(6.dp))
+                                                                    .background(if (isPlayingInPlayer) Color(0xFFF59E0B) else Color(0x22FFFFFF)),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Videocam,
+                                                                    contentDescription = null,
+                                                                    tint = if (isPlayingInPlayer) Color.Black else Color(0xFFF59E0B),
+                                                                    modifier = Modifier.size(18.dp)
+                                                                )
+                                                            }
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(
+                                                                    text = video.name,
+                                                                    color = if (isPlayingInPlayer) Color(0xFFF59E0B) else Color.White,
+                                                                    fontSize = 12.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis
+                                                                )
+                                                                Text(
+                                                                    text = if (isPlayingInPlayer) "▶ プレイヤー内で再生中" else "動画ファイル",
+                                                                    color = if (isPlayingInPlayer) Color(0xFFFCD34D) else Color(0xFF94A3B8),
+                                                                    fontSize = 10.sp
+                                                                )
+                                                            }
+                                                        }
+
+                                                        IconButton(
+                                                            onClick = { viewModel.deleteCustomVideo(video) },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFF64748B), modifier = Modifier.size(15.dp))
+                                                        }
+                                                    }
+
+                                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                                    // Action buttons for each video
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Button(
+                                                            onClick = {
+                                                                activeVideoItem = video
+                                                                isVideoMode = true
+                                                            },
+                                                            modifier = Modifier.weight(1f),
+                                                            colors = ButtonDefaults.buttonColors(
+                                                                containerColor = if (isPlayingInPlayer) Color(0xFFF59E0B) else Color(0x28F59E0B),
+                                                                contentColor = if (isPlayingInPlayer) Color.Black else Color(0xFFFCD34D)
+                                                            ),
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 3.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(13.dp))
+                                                            Spacer(modifier = Modifier.width(3.dp))
+                                                            Text("プレイヤー再生", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                                        }
+
+                                                        Button(
+                                                            onClick = {
+                                                                viewModel.previewBackgroundVideo(
+                                                                    ChimeVideoSourceType.CUSTOM_FILE,
+                                                                    customVideoPath = video.filePath,
+                                                                    customVideoName = video.name,
+                                                                    durationSeconds = -2,
+                                                                    displayLayer = VideoDisplayLayer.FOREGROUND
+                                                                )
+                                                                Toast.makeText(context, "前面全画面で動画を再生中", Toast.LENGTH_SHORT).show()
+                                                            },
+                                                            modifier = Modifier.weight(1f),
+                                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF), contentColor = Color.White),
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 3.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(13.dp))
+                                                            Spacer(modifier = Modifier.width(3.dp))
+                                                            Text("全画面表示", fontSize = 10.5.sp)
+                                                        }
+
+                                                        Button(
+                                                            onClick = {
+                                                                viewModel.previewBackgroundVideo(
+                                                                    ChimeVideoSourceType.CUSTOM_FILE,
+                                                                    customVideoPath = video.filePath,
+                                                                    customVideoName = video.name,
+                                                                    durationSeconds = -2,
+                                                                    displayLayer = VideoDisplayLayer.BACKGROUND
+                                                                )
+                                                                Toast.makeText(context, "時計の背景で動画を再生中", Toast.LENGTH_SHORT).show()
+                                                            },
+                                                            modifier = Modifier.weight(1f),
+                                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0x18FFFFFF), contentColor = Color(0xFFCBD5E1)),
+                                                            shape = RoundedCornerShape(6.dp),
+                                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 3.dp)
+                                                        ) {
+                                                            Text("時計背景", fontSize = 10.5.sp)
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -932,6 +1282,94 @@ fun MusicPlayerDialog(
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+
+                                    // 3.5 Sound Enhancement Bars: Bass Boost & 3D Virtualizer
+                                    item {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFF0F131D))
+                                                .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(10.dp))
+                                                .padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "🔊 サウンドエフェクト・強化バー",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF00E5FF)
+                                            )
+
+                                            // Bass Boost Slider
+                                            Column {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        Text("💥 低音ブースト (Bass Boost):", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                                        Text("重低音強化", fontSize = 9.sp, color = Color(0xFF888888))
+                                                    }
+                                                    Text(
+                                                        text = "${eqState.bassBoostStrength / 10}%",
+                                                        fontSize = 10.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = if (eqState.bassBoostStrength > 0) Color(0xFF00E5FF) else Color(0xFF888888)
+                                                    )
+                                                }
+                                                Slider(
+                                                    value = eqState.bassBoostStrength.toFloat(),
+                                                    onValueChange = { newVal ->
+                                                        viewModel.setEqualizerBassBoost(newVal.toInt())
+                                                    },
+                                                    valueRange = 0f..1000f,
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = Color(0xFF00E5FF),
+                                                        activeTrackColor = Color(0xFF00E5FF),
+                                                        inactiveTrackColor = Color(0x33FFFFFF)
+                                                    ),
+                                                    modifier = Modifier.height(24.dp)
+                                                )
+                                            }
+
+                                            // Virtualizer Slider
+                                            Column {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        Text("🎧 立体音響 (Virtualizer):", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                                                        Text("サラウンド空間", fontSize = 9.sp, color = Color(0xFF888888))
+                                                    }
+                                                    Text(
+                                                        text = "${eqState.virtualizerStrength / 10}%",
+                                                        fontSize = 10.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = if (eqState.virtualizerStrength > 0) Color(0xFF38BDF8) else Color(0xFF888888)
+                                                    )
+                                                }
+                                                Slider(
+                                                    value = eqState.virtualizerStrength.toFloat(),
+                                                    onValueChange = { newVal ->
+                                                        viewModel.setEqualizerVirtualizer(newVal.toInt())
+                                                    },
+                                                    valueRange = 0f..1000f,
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = Color(0xFF38BDF8),
+                                                        activeTrackColor = Color(0xFF38BDF8),
+                                                        inactiveTrackColor = Color(0x33FFFFFF)
+                                                    ),
+                                                    modifier = Modifier.height(24.dp)
+                                                )
                                             }
                                         }
                                     }

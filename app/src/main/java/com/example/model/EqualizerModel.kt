@@ -1,96 +1,138 @@
 package com.example.model
 
 /**
- * Predefined Equalizer Presets
+ * Predefined Equalizer Presets for standard music player experience
  */
 enum class EqualizerPreset(
     val id: String,
     val displayName: String,
     val description: String,
     val bandGainsDb: List<Int>, // 5 frequency bands: ~60Hz, ~230Hz, ~910Hz, ~3600Hz, ~14000Hz [-15dB .. +15dB]
+    val bassBoostStrength: Int = 0, // 0..1000 (0% to 100%)
+    val virtualizerStrength: Int = 0, // 0..1000 (0% to 100%)
     val bassCutMode: BassCutMode = BassCutMode.OFF
 ) {
     FLAT(
         "FLAT",
         "フラット (標準)",
-        "原音に忠実なバランス",
+        "原音に忠実なナチュラルバランス",
         listOf(0, 0, 0, 0, 0),
-        BassCutMode.OFF
-    ),
-    BASS_REDUCE(
-        "BASS_REDUCE",
-        "低音カット (小型スピーカー保護)",
-        "低音域を抑えて小型・時計スピーカーの音割れ・ビビリを強力に防止",
-        listOf(-12, -7, 0, 2, 3),
-        BassCutMode.STRONG
-    ),
-    BASS_CUT_LIGHT(
-        "BASS_CUT_LIGHT",
-        "低音マイルドカット (スッキリ)",
-        "余分な重低音のみを適度に抑えて聴きやすくクリアに",
-        listOf(-6, -3, 0, 1, 2),
-        BassCutMode.LIGHT
-    ),
-    VOCAL(
-        "VOCAL",
-        "ボーカル・声くっきり",
-        "中音域（人の声・ボーカル・時報・アナウンス）を明瞭化",
-        listOf(-5, 2, 6, 3, -1),
-        BassCutMode.MEDIUM
-    ),
-    TREBLE_BOOST(
-        "TREBLE_BOOST",
-        "高音強調・クリスタルトーン",
-        "高音域の抜けと繊細さを高める",
-        listOf(-4, -2, 1, 5, 7),
-        BassCutMode.LIGHT
+        bassBoostStrength = 0,
+        virtualizerStrength = 0,
+        bassCutMode = BassCutMode.OFF
     ),
     BASS_BOOST(
         "BASS_BOOST",
-        "低音強化 (外部・大型スピーカー用)",
-        "迫力のある重低音をブースト（※低音に強いスピーカー推奨）",
-        listOf(8, 5, 0, -1, -2),
-        BassCutMode.OFF
+        "重低音ブースト (Bass)",
+        "迫力のあるディープな重低音とキックを強力に強化",
+        listOf(9, 6, 2, 0, -1),
+        bassBoostStrength = 800,
+        virtualizerStrength = 200,
+        bassCutMode = BassCutMode.OFF
+    ),
+    ROCK(
+        "ROCK",
+        "ロック (Rock)",
+        "パンチのある低音と伸びやかな高音のドンシャリサウンド",
+        listOf(6, 3, -1, 3, 5),
+        bassBoostStrength = 500,
+        virtualizerStrength = 300,
+        bassCutMode = BassCutMode.OFF
+    ),
+    POP(
+        "POP",
+        "ポップス (Pop)",
+        "明るくメリハリのあるリズミカルで心地よいサウンド",
+        listOf(3, 1, 2, 4, 3),
+        bassBoostStrength = 350,
+        virtualizerStrength = 200,
+        bassCutMode = BassCutMode.OFF
+    ),
+    JAZZ(
+        "JAZZ",
+        "ジャズ (Jazz)",
+        "温かみのあるウッドベースと繊細なピアノ・サックス",
+        listOf(4, 3, 0, 2, 3),
+        bassBoostStrength = 400,
+        virtualizerStrength = 300,
+        bassCutMode = BassCutMode.OFF
+    ),
+    CLASSICAL(
+        "CLASSICAL",
+        "クラシック (Classical)",
+        "ホールの残響とダイナミックレンジ豊かな空間表現",
+        listOf(5, 3, 0, 3, 4),
+        bassBoostStrength = 200,
+        virtualizerStrength = 600,
+        bassCutMode = BassCutMode.OFF
+    ),
+    EDM(
+        "EDM",
+        "ダンス / EDM (Club)",
+        "フロアを揺らすサブベースと刺激的なビートサウンド",
+        listOf(10, 7, 0, 3, 6),
+        bassBoostStrength = 900,
+        virtualizerStrength = 450,
+        bassCutMode = BassCutMode.OFF
+    ),
+    VOCAL(
+        "VOCAL",
+        "ボーカル強調 (Vocal)",
+        "歌声・アナウンス・ラジオの人の声を前面にくっきりと",
+        listOf(-2, 2, 6, 4, 1),
+        bassBoostStrength = 0,
+        virtualizerStrength = 150,
+        bassCutMode = BassCutMode.OFF
+    ),
+    TREBLE_BOOST(
+        "TREBLE_BOOST",
+        "高音強調 (Treble)",
+        "クリスタルトーンのような澄んだ透明感と音の抜け",
+        listOf(-3, -1, 1, 6, 8),
+        bassBoostStrength = 0,
+        virtualizerStrength = 250,
+        bassCutMode = BassCutMode.OFF
     ),
     NIGHT_RELAX(
         "NIGHT_RELAX",
         "ナイト・リラックス",
-        "耳障りな周波数と低音の振動をカットした優しい音質",
-        listOf(-8, -4, 0, -2, -5),
-        BassCutMode.STRONG
+        "耳当たりが優しく刺激のない落ち着いた静かな音質",
+        listOf(-5, -2, 0, -1, -4),
+        bassBoostStrength = 0,
+        virtualizerStrength = 200,
+        bassCutMode = BassCutMode.OFF
     ),
-    POP(
-        "POP",
-        "ポップス",
-        "明るくメリハリのあるリズミカルな音質",
-        listOf(3, 1, 2, 4, 3),
-        BassCutMode.OFF
+    BASS_REDUCE(
+        "BASS_REDUCE",
+        "低音カット (スピーカー保護)",
+        "小型スピーカーのビビリ・音割れを抑えるモード",
+        listOf(-10, -5, 0, 2, 3),
+        bassBoostStrength = 0,
+        virtualizerStrength = 0,
+        bassCutMode = BassCutMode.STRONG
     ),
-    ROCK(
-        "ROCK",
-        "ロック",
-        "ドンシャリ系のエネルギッシュなサウンド",
-        listOf(6, 3, -2, 3, 5),
-        BassCutMode.OFF
-    ),
-    CLASSICAL(
-        "CLASSICAL",
-        "クラシック・アコースティック",
-        "空間の広がりとダイナミックレンジを大切にしたサウンド",
-        listOf(4, 2, -1, 3, 4),
-        BassCutMode.OFF
+    BASS_CUT_LIGHT(
+        "BASS_CUT_LIGHT",
+        "低音マイルドカット",
+        "余分な重低音を適度に抑えてすっきり聴きやすく",
+        listOf(-5, -2, 0, 1, 2),
+        bassBoostStrength = 0,
+        virtualizerStrength = 0,
+        bassCutMode = BassCutMode.LIGHT
     ),
     CUSTOM(
         "CUSTOM",
         "カスタム (手動イコライザー)",
-        "5つの周波数バンドとお好みの低音カットを自由に設定",
+        "周波数スライダーや低音ブーストをお好みに調整",
         listOf(0, 0, 0, 0, 0),
-        BassCutMode.OFF
+        bassBoostStrength = 0,
+        virtualizerStrength = 0,
+        bassCutMode = BassCutMode.OFF
     )
 }
 
 /**
- * Bass Cut Filter strength specifically for devices with weak / rattling speakers
+ * Bass Cut Filter strength specifically for devices with weak / rattling speakers (optional protection)
  */
 enum class BassCutMode(
     val id: String,
@@ -112,12 +154,14 @@ data class EqualizerState(
     val isEnabled: Boolean = true,
     val currentPreset: EqualizerPreset = EqualizerPreset.FLAT,
     val bandGainsDb: List<Int> = listOf(0, 0, 0, 0, 0), // 5 bands in dB [-15 .. +15]
+    val bassBoostStrength: Int = 0, // 0..1000 (0% to 100% hardware bass boost)
+    val virtualizerStrength: Int = 0, // 0..1000 (0% to 100% 3D surround sound)
     val bassCutMode: BassCutMode = BassCutMode.OFF,
     val isSupportedOnDevice: Boolean = true,
     val centerFrequenciesHz: List<Int> = listOf(60, 230, 910, 3600, 14000)
 ) {
     /**
-     * Compute effective band gains considering the bass cut mode on low bands
+     * Compute effective band gains considering the optional bass cut mode on low bands
      */
     fun getEffectiveBandGains(): List<Int> {
         if (!isEnabled) return listOf(0, 0, 0, 0, 0)
@@ -131,3 +175,4 @@ data class EqualizerState(
         )
     }
 }
+

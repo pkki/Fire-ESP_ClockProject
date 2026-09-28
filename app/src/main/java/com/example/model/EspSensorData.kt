@@ -106,3 +106,15 @@ data class EspSensorData(
             }
         }
 }
+
+/**
+ * Bluetooth device information for paired (bonded) and discovered devices
+ */
+data class BleDeviceInfo(
+    val name: String,
+    val address: String,
+    val rssi: Int? = null,
+    val isBonded: Boolean = false,
+    val isConnected: Boolean = false
+)
+

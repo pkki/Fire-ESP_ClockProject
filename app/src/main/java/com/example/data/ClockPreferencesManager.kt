@@ -103,6 +103,8 @@ class ClockPreferencesManager(context: Context) {
             equalizerBand2 = prefs.getInt("equalizer_band_2", 0),
             equalizerBand3 = prefs.getInt("equalizer_band_3", 0),
             equalizerBand4 = prefs.getInt("equalizer_band_4", 0),
+            equalizerBassBoostStrength = prefs.getInt("equalizer_bass_boost", 0),
+            equalizerVirtualizerStrength = prefs.getInt("equalizer_virtualizer", 0),
             equalizerBassCutMode = prefs.getString("equalizer_bass_cut_mode", "OFF") ?: "OFF",
             antiNoiseSilenceEnabled = prefs.getBoolean("anti_noise_silence_enabled", true)
         )
@@ -158,6 +160,8 @@ class ClockPreferencesManager(context: Context) {
             .putInt("equalizer_band_2", state.equalizerBand2)
             .putInt("equalizer_band_3", state.equalizerBand3)
             .putInt("equalizer_band_4", state.equalizerBand4)
+            .putInt("equalizer_bass_boost", state.equalizerBassBoostStrength)
+            .putInt("equalizer_virtualizer", state.equalizerVirtualizerStrength)
             .putString("equalizer_bass_cut_mode", state.equalizerBassCutMode)
             .putBoolean("anti_noise_silence_enabled", state.antiNoiseSilenceEnabled)
             .apply()
@@ -870,10 +874,12 @@ class ClockPreferencesManager(context: Context) {
         _state.value = _state.value.copy(equalizerEnabled = enabled)
     }
 
-    fun updateEqualizerPreset(preset: String, bands: List<Int>, bassCutMode: String) {
+    fun updateEqualizerPreset(preset: String, bands: List<Int>, bassCutMode: String, bassBoost: Int = _state.value.equalizerBassBoostStrength, virtualizer: Int = _state.value.equalizerVirtualizerStrength) {
         val editor = prefs.edit()
             .putString("equalizer_preset", preset)
             .putString("equalizer_bass_cut_mode", bassCutMode)
+            .putInt("equalizer_bass_boost", bassBoost)
+            .putInt("equalizer_virtualizer", virtualizer)
         if (bands.size >= 5) {
             editor.putInt("equalizer_band_0", bands[0])
                 .putInt("equalizer_band_1", bands[1])
@@ -885,12 +891,26 @@ class ClockPreferencesManager(context: Context) {
         _state.value = _state.value.copy(
             equalizerPreset = preset,
             equalizerBassCutMode = bassCutMode,
+            equalizerBassBoostStrength = bassBoost,
+            equalizerVirtualizerStrength = virtualizer,
             equalizerBand0 = bands.getOrElse(0) { _state.value.equalizerBand0 },
             equalizerBand1 = bands.getOrElse(1) { _state.value.equalizerBand1 },
             equalizerBand2 = bands.getOrElse(2) { _state.value.equalizerBand2 },
             equalizerBand3 = bands.getOrElse(3) { _state.value.equalizerBand3 },
             equalizerBand4 = bands.getOrElse(4) { _state.value.equalizerBand4 }
         )
+    }
+
+    fun updateEqualizerBassBoost(strength: Int) {
+        val clamped = strength.coerceIn(0, 1000)
+        prefs.edit().putInt("equalizer_bass_boost", clamped).apply()
+        _state.value = _state.value.copy(equalizerBassBoostStrength = clamped)
+    }
+
+    fun updateEqualizerVirtualizer(strength: Int) {
+        val clamped = strength.coerceIn(0, 1000)
+        prefs.edit().putInt("equalizer_virtualizer", clamped).apply()
+        _state.value = _state.value.copy(equalizerVirtualizerStrength = clamped)
     }
 
     fun updateEqualizerBand(bandIndex: Int, gainDb: Int) {

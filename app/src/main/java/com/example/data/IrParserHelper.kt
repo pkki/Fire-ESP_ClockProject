@@ -102,6 +102,74 @@ object IrParserHelper {
             return ParsedIrSignal(proto.uppercase(), hex, 32)
         }
 
+        // 3. Direct Raw Pulse Train detection (e.g. "4396,4390,516,1636,..." with optional protocol names and hex)
+        if (trimmed.contains(",") && trimmed.split(",").size >= 10) {
+            // Extract all digit tokens from comma or whitespace separation
+            val rawTokens = mutableListOf<String>()
+            val lines = trimmed.lines()
+            for (line in lines) {
+                val parts = line.split(Regex("[,\\s]+")).map { it.trim() }
+                for (p in parts) {
+                    if (p.isNotEmpty() && p.all { it.isDigit() }) {
+                        rawTokens.add(p)
+                    }
+                }
+            }
+
+            if (rawTokens.size >= 10) {
+                val rawStr = rawTokens.joinToString(",")
+                val pulses = rawTokens.mapNotNull { it.toIntOrNull() }
+                val pulseCount = pulses.size
+
+                // Leader pulse pattern detection
+                val mark0 = pulses.getOrNull(0) ?: 0
+                val space0 = pulses.getOrNull(1) ?: 0
+
+                var detectedProto = "UNKNOWN"
+                var estimatedBits = (pulseCount - 2).coerceAtLeast(0) / 2
+
+                if (mark0 in 4000..4800 && space0 in 4000..4800) {
+                    detectedProto = "BOSCH144"
+                    if (pulseCount >= 280) estimatedBits = 144
+                } else if (mark0 in 2800..3900 && space0 in 1400..2200) {
+                    detectedProto = "AEHA"
+                } else if (mark0 in 7500..10500 && space0 in 3800..5500) {
+                    detectedProto = "NEC"
+                } else if (mark0 in 2000..2800 && space0 in 400..800) {
+                    detectedProto = "SONY"
+                } else if (mark0 in 3000..3800 && space0 in 3000..3800) {
+                    detectedProto = "DAIKIN"
+                }
+
+                // Check for explicit protocol keywords in the input
+                val upperText = trimmed.uppercase()
+                when {
+                    upperText.contains("BOSCH144") || upperText.contains("BOSCH_144") -> {
+                        detectedProto = "BOSCH144"
+                        estimatedBits = 144
+                    }
+                    upperText.contains("BOSCH") -> detectedProto = "BOSCH"
+                    upperText.contains("DAIKIN") -> detectedProto = "DAIKIN"
+                    upperText.contains("PANASONIC_AC") || upperText.contains("PANASONIC-AC") -> detectedProto = "PANASONIC_AC"
+                    upperText.contains("MITSUBISHI_AC") || upperText.contains("MITSUBISHI-AC") -> detectedProto = "MITSUBISHI_AC"
+                    upperText.contains("FUJITSU_AC") || upperText.contains("FUJITSU-AC") -> detectedProto = "FUJITSU_AC"
+                    upperText.contains("CORONA_AC") || upperText.contains("CORONA") -> detectedProto = "CORONA_AC"
+                    upperText.contains("TOSHIBA_AC") || upperText.contains("TOSHIBA") -> detectedProto = "TOSHIBA_AC"
+                    upperText.contains("HITACHI_AC") || upperText.contains("HITACHI") -> detectedProto = "HITACHI_AC"
+                    upperText.contains("SHARP_AC") || upperText.contains("SHARP") -> detectedProto = "SHARP_AC"
+                    upperText.contains("AEHA") -> detectedProto = "AEHA"
+                    upperText.contains("NEC") -> detectedProto = "NEC"
+                    upperText.contains("SONY") -> detectedProto = "SONY"
+                }
+
+                // Check if hex code is embedded in the string
+                val hexMatcher = Pattern.compile("""0x[0-9A-Fa-f]{4,16}""").matcher(trimmed)
+                val hex = if (hexMatcher.find()) formatHex(hexMatcher.group()) else "0x0"
+
+                return ParsedIrSignal(detectedProto, hex, estimatedBits, rawStr)
+            }
+        }
+
         return null
     }
 
