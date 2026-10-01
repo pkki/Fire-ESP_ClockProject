@@ -193,75 +193,108 @@ fun AlarmSettingsTabContent(
                             ) {
                                 // Hour Control
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    IconButton(
-                                        onClick = {
-                                            alarmHour = (alarmHour + 1) % 24
-                                            saveAlarmSettings()
-                                        }
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0x3300E5FF),
+                                        modifier = Modifier
+                                            .size(width = 76.dp, height = 46.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                alarmHour = (alarmHour + 1) % 24
+                                                saveAlarmSettings()
+                                            }
                                     ) {
-                                        Text("▲", color = Color(0xFF00E5FF), fontSize = 16.sp)
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text("▲", color = Color(0xFF00E5FF), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "%02d".format(alarmHour),
-                                        fontSize = 42.sp,
+                                        fontSize = 46.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontFamily = FontFamily.Monospace,
                                         color = if (alarmEnabled) Color.White else Color(0xFF78909C)
                                     )
-                                    IconButton(
-                                        onClick = {
-                                            alarmHour = if (alarmHour > 0) alarmHour - 1 else 23
-                                            saveAlarmSettings()
-                                        }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0x3300E5FF),
+                                        modifier = Modifier
+                                            .size(width = 76.dp, height = 46.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                alarmHour = if (alarmHour > 0) alarmHour - 1 else 23
+                                                saveAlarmSettings()
+                                            }
                                     ) {
-                                        Text("▼", color = Color(0xFF00E5FF), fontSize = 16.sp)
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text("▼", color = Color(0xFF00E5FF), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
 
                                 Text(
                                     text = ":",
-                                    fontSize = 38.sp,
+                                    fontSize = 44.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF00E5FF),
-                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                    modifier = Modifier.padding(horizontal = 16.dp)
                                 )
 
                                 // Minute Control
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    IconButton(
-                                        onClick = {
-                                            alarmMinute = (alarmMinute + 5) % 60
-                                            saveAlarmSettings()
-                                        }
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0x3300E5FF),
+                                        modifier = Modifier
+                                            .size(width = 76.dp, height = 46.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                alarmMinute = (alarmMinute + 5) % 60
+                                                saveAlarmSettings()
+                                            }
                                     ) {
-                                        Text("▲", color = Color(0xFF00E5FF), fontSize = 16.sp)
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text("▲", color = Color(0xFF00E5FF), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "%02d".format(alarmMinute),
-                                        fontSize = 42.sp,
+                                        fontSize = 46.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontFamily = FontFamily.Monospace,
                                         color = if (alarmEnabled) Color.White else Color(0xFF78909C)
                                     )
-                                    IconButton(
-                                        onClick = {
-                                            alarmMinute = if (alarmMinute >= 5) alarmMinute - 5 else 55
-                                            saveAlarmSettings()
-                                        }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = Color(0x3300E5FF),
+                                        modifier = Modifier
+                                            .size(width = 76.dp, height = 46.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                alarmMinute = if (alarmMinute >= 5) alarmMinute - 5 else 55
+                                                saveAlarmSettings()
+                                            }
                                     ) {
-                                        Text("▼", color = Color(0xFF00E5FF), fontSize = 16.sp)
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text("▼", color = Color(0xFF00E5FF), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
 
                             // Repeat Days of Week
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "繰り返し曜日",
-                                fontSize = 12.sp,
-                                color = Color(0xFF90A4AE)
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFB0BEC5)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -272,8 +305,9 @@ fun AlarmSettingsTabContent(
                                     Surface(
                                         shape = CircleShape,
                                         color = if (isSelected) Color(0xFFFF5252) else Color(0xFF263238),
+                                        border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFFF8A80)) else null,
                                         modifier = Modifier
-                                            .size(34.dp)
+                                            .size(46.dp)
                                             .clip(CircleShape)
                                             .clickable {
                                                 val newDays = alarmDays.toMutableSet()
@@ -289,9 +323,9 @@ fun AlarmSettingsTabContent(
                                         Box(contentAlignment = Alignment.Center) {
                                             Text(
                                                 text = name,
-                                                fontSize = 13.sp,
+                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) Color.White else Color(0xFFB0BEC5)
+                                                color = if (isSelected) Color.White else Color(0xFFCFD8DC)
                                             )
                                         }
                                     }
@@ -391,17 +425,18 @@ fun AlarmSettingsTabContent(
 
                                     OutlinedButton(
                                         onClick = { viewModel.testAlarmSound(typeKey, alarmVolume) },
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.height(32.dp)
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.height(42.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.PlayArrow,
                                             contentDescription = null,
                                             tint = Color(0xFF00E5FF),
-                                            modifier = Modifier.size(14.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("試聴", fontSize = 11.sp, color = Color(0xFF00E5FF))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("試聴", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
                                     }
                                 }
                             }
@@ -484,23 +519,26 @@ fun AlarmSettingsTabContent(
                             snoozeOptions.forEach { mins ->
                                 val isCur = alarmSnoozeMinutes == mins
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     color = if (isCur) Color(0xFFFFB74D) else Color(0xFF263238),
+                                    border = if (isCur) androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFFE082)) else null,
                                     modifier = Modifier
-                                        .padding(horizontal = 3.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 4.dp)
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
                                         .clickable {
                                             alarmSnoozeMinutes = mins
                                             saveAlarmSettings()
                                         }
                                 ) {
-                                    Text(
-                                        text = "${mins}分",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCur) Color.Black else Color(0xFFCFD8DC),
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 14.dp)) {
+                                        Text(
+                                            text = "${mins}分",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCur) Color.Black else Color(0xFFCFD8DC)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -686,10 +724,11 @@ fun AlarmSettingsTabContent(
                                     containerColor = Color(0xFFFF3D00),
                                     contentColor = Color.White
                                 ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(34.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.height(44.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                             ) {
-                                Text("テスト発報", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("テスト発報", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

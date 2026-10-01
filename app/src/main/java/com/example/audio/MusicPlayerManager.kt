@@ -2,7 +2,9 @@ package com.example.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
+import android.os.Build
 import android.util.Log
 import com.example.model.CustomAudioItem
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,7 @@ data class MusicPlayerState(
     val durationMs: Long = 0L,
     val volume: Float = 0.85f,
     val repeatMode: MusicRepeatMode = MusicRepeatMode.ALL,
+    val playbackSpeed: Float = 1.0f,
     val playlist: List<CustomAudioItem> = emptyList(),
     val currentIndex: Int = -1
 ) {
@@ -51,18 +54,24 @@ data class MusicPlayerState(
             val totalSec = ms / 1000
             val min = totalSec / 60
             val sec = totalSec % 60
-            return String.format("%02d:%02d", min, sec)
+            val hrs = min / 60
+            return if (hrs > 0) {
+                String.format("%02d:%02d:%02d", hrs, min % 60, sec)
+            } else {
+                String.format("%02d:%02d", min, sec)
+            }
         }
     }
 }
 
 /**
- * 本格的な音楽プレイヤー管理マネージャー (MusicPlayerManager)
+ * 本格的かつ高信頼な音楽プレイヤー管理マネージャー (MusicPlayerManager)
  * - 楽曲の再生・一時停止・再開・停止・曲送り・曲戻し
- * - シークバーでの頭出し / シーク
+ * - 精密シークバー操作 (seekTo, +/-10秒スキップ)
  * - 音量個別調整 (0.0f〜1.0f)
+ * - 再生速度調整 (0.5x〜2.0x)
  * - リピートモード (全曲リピート・1曲リピート・リピートOFF・シャッフル)
- * - 再生進捗のリアルタイム通知 (250ms毎)
+ * - 200ms 高精度リアルタイム進捗通知
  */
 object MusicPlayerManager {
     private const val TAG = "MusicPlayerManager"
@@ -132,6 +141,8 @@ object MusicPlayerManager {
             return
         }
 
+        val fallbackDur = probeDuration(track.filePath)
+
         try {
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
@@ -147,18 +158,26 @@ object MusicPlayerManager {
 
                 setOnPreparedListener { mp ->
                     try {
-                        val duration = mp.duration.toLong().coerceAtLeast(0L)
+                        val duration = mp.duration.toLong().let { if (it > 0) it else fallbackDur }
                         val sessionId = mp.audioSessionId
                         if (sessionId > 0) {
                             AudioEqualizerManager.registerAudioSession(sessionId)
                         }
+
+                        // Apply playback speed
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && _playerState.value.playbackSpeed != 1.0f) {
+                            try {
+                                mp.playbackParams = mp.playbackParams.setSpeed(_playerState.value.playbackSpeed)
+                            } catch (_: Exception) {}
+                        }
+
                         mp.start()
                         _playerState.value = _playerState.value.copy(
                             isPlaying = true,
                             isPaused = false,
                             currentTrack = track,
                             currentPositionMs = 0L,
-                            durationMs = duration,
+                            durationMs = duration.coerceAtLeast(0L),
                             volume = volume,
                             repeatMode = repeatMode,
                             playlist = playlist,
@@ -176,10 +195,16 @@ object MusicPlayerManager {
                     handleTrackCompletion()
                 }
 
-                setOnErrorListener { mp, what, extra ->
+                setOnErrorListener { _, what, extra ->
                     Log.e(TAG, "MediaPlayer error: what=$what, extra=$extra")
                     stopInternal(keepTrack = false)
                     true
+                }
+
+                setOnSeekCompleteListener { player ->
+                    _playerState.value = _playerState.value.copy(
+                        currentPositionMs = player.currentPosition.toLong().coerceAtLeast(0L)
+                    )
                 }
 
                 prepareAsync()
@@ -337,12 +362,26 @@ object MusicPlayerManager {
 
     fun seekTo(positionMs: Long) {
         try {
-            val validPos = positionMs.coerceIn(0L, _playerState.value.durationMs.coerceAtLeast(1L))
-            mediaPlayer?.seekTo(validPos.toInt())
+            val maxDur = _playerState.value.durationMs.coerceAtLeast(1L)
+            val validPos = positionMs.coerceIn(0L, maxDur)
             _playerState.value = _playerState.value.copy(currentPositionMs = validPos)
+
+            mediaPlayer?.let { mp ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    mp.seekTo(validPos, MediaPlayer.SEEK_CLOSEST)
+                } else {
+                    mp.seekTo(validPos.toInt())
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error seeking to position $positionMs", e)
         }
+    }
+
+    fun seekRelative(offsetMs: Long) {
+        val current = _playerState.value.currentPositionMs
+        val target = current + offsetMs
+        seekTo(target)
     }
 
     fun setVolume(volume: Float) {
@@ -352,6 +391,20 @@ object MusicPlayerManager {
             mediaPlayer?.setVolume(clamped, clamped)
         } catch (e: Exception) {
             Log.e(TAG, "Error setting volume $clamped", e)
+        }
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        val validSpeed = speed.coerceIn(0.25f, 3.0f)
+        _playerState.value = _playerState.value.copy(playbackSpeed = validSpeed)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                mediaPlayer?.let { mp ->
+                    mp.playbackParams = mp.playbackParams.setSpeed(validSpeed)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting playback speed", e)
+            }
         }
     }
 
@@ -373,7 +426,6 @@ object MusicPlayerManager {
     private fun handleTrackCompletion() {
         when (_playerState.value.repeatMode) {
             MusicRepeatMode.ONE -> {
-                // 1曲リピート: 先頭から再再生
                 seekTo(0L)
                 mediaPlayer?.start()
                 _playerState.value = _playerState.value.copy(isPlaying = true, isPaused = false, currentPositionMs = 0L)
@@ -400,13 +452,13 @@ object MusicPlayerManager {
             while (isActive && mediaPlayer?.isPlaying == true) {
                 try {
                     val pos = mediaPlayer?.currentPosition?.toLong() ?: 0L
-                    val dur = mediaPlayer?.duration?.toLong() ?: _playerState.value.durationMs
+                    val dur = mediaPlayer?.duration?.toLong()?.let { if (it > 0) it else _playerState.value.durationMs } ?: _playerState.value.durationMs
                     _playerState.value = _playerState.value.copy(
                         currentPositionMs = pos,
                         durationMs = dur.coerceAtLeast(0L)
                     )
                 } catch (_: Exception) {}
-                delay(250)
+                delay(200)
             }
         }
     }
@@ -414,5 +466,21 @@ object MusicPlayerManager {
     private fun stopProgressTicker() {
         progressJob?.cancel()
         progressJob = null
+    }
+
+    fun probeDuration(filePath: String): Long {
+        return try {
+            val file = File(filePath)
+            if (!file.exists()) return 0L
+            val retriever = MediaMetadataRetriever()
+            FileInputStream(file).use { fis ->
+                retriever.setDataSource(fis.fd)
+            }
+            val timeStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            timeStr?.toLongOrNull() ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
     }
 }

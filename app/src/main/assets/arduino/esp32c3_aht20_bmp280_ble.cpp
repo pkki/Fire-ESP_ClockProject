@@ -201,6 +201,9 @@ class MyServerCallbacks: public BLEServerCallbacks {
             Update.abort();
             isOtaInProgress = false;
         }
+        // 即座にアドバタイズを再開してアプリからの自動再接続を待受
+        pServer->getAdvertising()->start();
+        Serial.println("[BLE] Restarted advertising from callback");
     }
 };
 
@@ -524,6 +527,9 @@ void handleCommand(const String& jsonStr) {
     else if (strcmp(cmd, "read_sensor") == 0 || strcmp(cmd, "refresh_now") == 0) {
         forceSensorSendNow = true;
     }
+    else if (strcmp(cmd, "ping") == 0) {
+        sendBleJson("{\"type\":\"pong\"}");
+    }
     else if (strcmp(cmd, "restart") == 0 || strcmp(cmd, "reboot") == 0) {
         sendBleJson("{\"type\":\"status\",\"msg\":\"ESP32を再起動します...\"}");
         delay(500);
@@ -813,13 +819,20 @@ void loop() {
 
   // BLE 再アドバタイズ
   if (!deviceConnected && oldDeviceConnected) {
-      delay(500);
-      pServer->startAdvertising();
+      delay(300);
+      pServer->getAdvertising()->start();
       Serial.println("[BLE] Restarted advertising...");
       oldDeviceConnected = deviceConnected;
   }
   if (deviceConnected && !oldDeviceConnected) {
       oldDeviceConnected = deviceConnected;
+  }
+
+  // 念のための未接続時アドバタイズ監視・維持 (5秒ごとにチェック)
+  static unsigned long lastAdvCheckTime = 0;
+  if (!deviceConnected && (millis() - lastAdvCheckTime > 5000)) {
+      lastAdvCheckTime = millis();
+      pServer->getAdvertising()->start();
   }
 
   // 2. MQ-2 火災・煙検知

@@ -104,6 +104,7 @@ data class ClockPreferencesState(
     val espSensorEnabled: Boolean = true,
     val espConnectionMode: String = "BLE", // "BLE" (ESP32-C3 auto-connect), "USB", "WIFI"
     val espBleDeviceName: String = "ESP32C3-Sensor",
+    val espBleDeviceAddress: String? = null,
     val espBaudRate: Int = 115200,
     val espSensorHost: String = "192.168.1.100",
     val espSensorPort: Int = 80,

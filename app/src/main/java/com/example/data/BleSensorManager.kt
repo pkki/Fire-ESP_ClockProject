@@ -84,6 +84,28 @@ class BleSensorManager(
     var connectedDeviceAddress: String? = null
         private set
 
+    // 持続的なターゲットBLE MACアドレス (切断時の即時ダイレクト再接続およびスキャンフィルタに使用)
+    var savedDeviceAddress: String? = null
+        set(value) {
+            field = if (!value.isNullOrBlank()) value.trim() else null
+            if (field != null) {
+                Log.i(TAG, "Saved target BLE MAC address set to: $field")
+            }
+        }
+    var onDeviceAddressConnected: ((address: String) -> Unit)? = null
+
+    // キープアライブ / ハートビート用
+    private var heartbeatJob: Job? = null
+    private var lastDataReceivedEpochMs: Long = 0L
+
+    // Bluetoothシステム状態レシーバー
+    private var bluetoothStateReceiver: android.content.BroadcastReceiver? = null
+
+    // 再接続管理 (AndroidのScan Throttling 5回/30秒 回避用)
+    private var isReconnecting = false
+    private var reconnectAttempts = 0
+    private var lastScanStopTime = 0L
+
     // Classic Bluetooth SPP state
     private var sppSocket: BluetoothSocket? = null
     private var sppReadJob: Job? = null
@@ -142,16 +164,22 @@ class BleSensorManager(
                 }
                 _scannedDevices.value = curList.sortedByDescending { it.rssi ?: -100 }.take(25)
 
-                // 判定1: デバイス名が一致、またはESP32/ESP32C3/Sensor等のキーワードが含まれる
+                // 判定1: デバイス名または保存済みアドレスが一致
                 val nameMatches = matchesTarget(devName, devAddress)
 
-                // 判定2: NUSサービスUUIDがアドバタイズに含まれているか確認（名前が取得できなくても即接続）
+                // 判定2: NUSサービスUUIDがアドバタイズに含まれているか確認
                 val uuidMatches = scanRec?.serviceUuids?.any { it.uuid == NUS_SERVICE_UUID || it.uuid == ENV_SERVICE_UUID } ?: false
 
                 if (nameMatches || uuidMatches) {
                     Log.i(TAG, "Target ESP32-C3 detected: name='$devName', addr='$devAddress', uuidMatch=$uuidMatches. Connecting...")
                     stopScan()
-                    connectToDevice(device)
+                    lastScanStopTime = System.currentTimeMillis()
+                    savedDeviceAddress = devAddress
+                    onDeviceAddressConnected?.invoke(devAddress)
+                    scope.launch(Dispatchers.Main) {
+                        delay(200)
+                        connectToDevice(device)
+                    }
                 }
             }
         }
@@ -165,6 +193,7 @@ class BleSensorManager(
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "BLE scan failed with error code: $errorCode")
             isScanning = false
+            lastScanStopTime = System.currentTimeMillis()
             val errorDesc = when (errorCode) {
                 ScanCallback.SCAN_FAILED_ALREADY_STARTED -> "スキャン多重実行"
                 ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "BLE登録失敗 (Bluetoothを再起動してください)"
@@ -172,7 +201,7 @@ class BleSensorManager(
                 ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED -> "BLE非対応"
                 else -> "エラー: $errorCode"
             }
-            onStatusChanged(false, false, "BLEスキャン失敗 ($errorDesc)")
+            onStatusChanged(false, false, "BLEスキャン一時待機 ($errorDesc)")
         }
     }
 
@@ -184,7 +213,17 @@ class BleSensorManager(
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.i(TAG, "Connected to GATT server. Requesting MTU and discovering services...")
                 isConnectedInternal = true
+                connectedDeviceAddress = gatt.device.address
+                savedDeviceAddress = gatt.device.address
+                lastDataReceivedEpochMs = System.currentTimeMillis()
+                reconnectAttempts = 0
+                onDeviceAddressConnected?.invoke(gatt.device.address)
                 onStatusChanged(true, true, "サービス検出中...")
+
+                // コネクションの優先度をBALANCEDに明示設定 (切断・遅延防止)
+                try {
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                } catch (_: Exception) {}
 
                 var serviceDiscovered = false
                 val fallbackRunnable = Runnable {
@@ -214,22 +253,29 @@ class BleSensorManager(
                 }, 150)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 Log.w(TAG, "Disconnected from GATT server. status=$status")
-                isConnectedInternal = false
-                closeGatt()
-                onStatusChanged(false, false, "切断されました。再接続待機中...")
-                triggerAutoReconnect()
+                stopHeartbeatLoop()
+                scope.launch(Dispatchers.Main) {
+                    isConnectedInternal = false
+                    closeGatt()
+                    onStatusChanged(false, false, "切断されました。自動再接続中...")
+                    scheduleAutoReconnect(1200)
+                }
             } else if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.w(TAG, "GATT connection failed with status: $status. Reconnecting...")
+                Log.w(TAG, "GATT connection failed with status: $status. Cleaning up and reconnecting...")
+                stopHeartbeatLoop()
                 val failedDev = gatt.device
-                isConnectedInternal = false
-                closeGatt()
-                val isBonded = try { failedDev?.bondState == BluetoothDevice.BOND_BONDED } catch (_: Exception) { false }
-                if (failedDev != null && isBonded && !isSppMode) {
-                    Log.i(TAG, "GATT connection failed on bonded device ${failedDev.address}. Falling back to Bluetooth SPP...")
-                    connectToDeviceSpp(failedDev)
-                } else {
-                    onStatusChanged(false, false, "接続エラー (status=$status)。再検索中...")
-                    triggerAutoReconnect()
+                scope.launch(Dispatchers.Main) {
+                    isConnectedInternal = false
+                    closeGatt()
+                    delay(500) // Android BLEスタックのクリーンアップ待機
+                    val isBonded = try { failedDev?.bondState == BluetoothDevice.BOND_BONDED } catch (_: Exception) { false }
+                    if (failedDev != null && isBonded && !isSppMode) {
+                        Log.i(TAG, "GATT failed on bonded device ${failedDev.address}. Falling back to SPP...")
+                        connectToDeviceSpp(failedDev)
+                    } else {
+                        onStatusChanged(false, false, "再接続待機中 (status=$status)...")
+                        scheduleAutoReconnect(1500)
+                    }
                 }
             }
         }
@@ -288,6 +334,13 @@ class BleSensorManager(
         ) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.i(TAG, "CCCD descriptor written successfully. Ready to receive notifications!")
+                isConnectedInternal = true
+                gatt?.device?.address?.let { addr ->
+                    connectedDeviceAddress = addr
+                    savedDeviceAddress = addr
+                    onDeviceAddressConnected?.invoke(addr)
+                }
+                gatt?.let { startHeartbeatLoop(it) }
                 onStatusChanged(true, false, null)
             } else {
                 Log.w(TAG, "Failed to write CCCD descriptor, status: $status")
@@ -295,13 +348,22 @@ class BleSensorManager(
         }
 
         override fun onReadRemoteRssi(gatt: BluetoothGatt?, rssi: Int, status: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                // RSSI updated
+            if (status == BluetoothGatt.GATT_SUCCESS && gatt != null) {
+                val addr = gatt.device.address
+                val curList = _scannedDevices.value.toMutableList()
+                val idx = curList.indexOfFirst { it.address == addr }
+                if (idx >= 0) {
+                    curList[idx] = curList[idx].copy(rssi = rssi, isConnected = true)
+                    _scannedDevices.value = curList
+                }
             }
         }
     }
 
     fun matchesTarget(name: String, address: String = ""): Boolean {
+        if (address.isNotBlank() && !savedDeviceAddress.isNullOrBlank() && address.equals(savedDeviceAddress, ignoreCase = true)) {
+            return true
+        }
         if (address.isNotBlank() && targetDeviceName.isNotBlank() && address.equals(targetDeviceName, ignoreCase = true)) {
             return true
         }
@@ -323,12 +385,10 @@ class BleSensorManager(
     fun start(targetName: String = "ESP32C3-Sensor") {
         setTargetDeviceName(targetName)
         isStarted = true
-        Log.i(TAG, "Starting BLE Sensor Manager with target: $targetDeviceName")
+        registerBluetoothReceiver()
+        Log.i(TAG, "Starting BLE Sensor Manager with target: $targetDeviceName, savedAddress: $savedDeviceAddress")
         refreshBondedDevices()
-        val connected = connectToBondedOrConnectedDevice()
-        if (!connected) {
-            startAutoScanLoop()
-        }
+        scheduleAutoReconnect(300)
     }
 
     /**
@@ -336,6 +396,8 @@ class BleSensorManager(
      */
     fun stop() {
         isStarted = false
+        unregisterBluetoothReceiver()
+        stopHeartbeatLoop()
         autoReconnectJob?.cancel()
         autoReconnectJob = null
         stopScan()
@@ -347,6 +409,8 @@ class BleSensorManager(
      * 手動再スキャン / 再接続リクエスト
      */
     fun retryConnection() {
+        reconnectAttempts = 0
+        stopHeartbeatLoop()
         stopScan()
         closeAllConnections()
         refreshBondedDevices()
@@ -354,78 +418,240 @@ class BleSensorManager(
             start(targetDeviceName)
             return
         }
-        val connected = connectToBondedOrConnectedDevice()
-        if (!connected) {
-            triggerAutoReconnect()
+        scheduleAutoReconnect(200)
+    }
+
+    // --- キープアライブ / ハートビート機能 (長時間の接続切れ防止) ---
+    private fun startHeartbeatLoop(gatt: BluetoothGatt) {
+        heartbeatJob?.cancel()
+        heartbeatJob = scope.launch(Dispatchers.IO) {
+            Log.d(TAG, "Started BLE heartbeat & RSSI keep-alive loop")
+            while (isActive && isConnectedInternal && bluetoothGatt != null) {
+                delay(15000) // 15秒間隔のキープアライブ
+                if (!isConnectedInternal || bluetoothGatt == null) break
+                try {
+                    // 1. Link-layer RSSI読み取り (BluetoothコントローラーのSupervision Timeout防止)
+                    withContext(Dispatchers.Main) {
+                        try {
+                            bluetoothGatt?.readRemoteRssi()
+                        } catch (_: Exception) {}
+                    }
+                    // 2. もし25秒以上データ未受信ならESPへping送信してリンク活性化
+                    val now = System.currentTimeMillis()
+                    if (now - lastDataReceivedEpochMs >= 25000) {
+                        Log.d(TAG, "Sending BLE heartbeat ping to maintain connection...")
+                        sendCommand("{\"cmd\":\"ping\"}")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Heartbeat check error: ${e.message}")
+                }
+            }
         }
     }
 
-    private fun startAutoScanLoop() {
+    private fun stopHeartbeatLoop() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+    }
+
+    // --- Bluetoothシステム状態ブロードキャストレシーバー ---
+    private fun registerBluetoothReceiver() {
+        if (bluetoothStateReceiver != null) return
+        bluetoothStateReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                if (intent?.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                    val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                    when (state) {
+                        BluetoothAdapter.STATE_ON -> {
+                            Log.i(TAG, "Bluetooth turned ON via system. Triggering reconnection...")
+                            if (isStarted && !isConnectedInternal) {
+                                scheduleAutoReconnect(1200)
+                            }
+                        }
+                        BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
+                            Log.i(TAG, "Bluetooth turned OFF via system. Stopping connections...")
+                            stopHeartbeatLoop()
+                            stopScan()
+                            closeAllConnections()
+                            onStatusChanged(false, false, "BluetoothがOFFになりました")
+                        }
+                    }
+                }
+            }
+        }
+        try {
+            val filter = android.content.IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+            context.registerReceiver(bluetoothStateReceiver, filter)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register Bluetooth receiver: ${e.message}")
+        }
+    }
+
+    private fun unregisterBluetoothReceiver() {
+        bluetoothStateReceiver?.let {
+            try {
+                context.unregisterReceiver(it)
+            } catch (_: Exception) {}
+            bluetoothStateReceiver = null
+        }
+    }
+
+    // --- スマート自動再接続エンジン (Android Scan Throttling 5回/30秒 回避設計) ---
+    private fun scheduleAutoReconnect(delayMs: Long = 1000) {
+        if (!isStarted || isConnectedInternal) return
         autoReconnectJob?.cancel()
-        autoReconnectJob = scope.launch {
-            while (isActive && isStarted) {
-                if (bluetoothGatt == null && sppSocket == null && !isConnectedInternal) {
-                    refreshBondedDevices()
-                    val connected = connectToBondedOrConnectedDevice()
-                    if (!connected) {
-                        startScan()
+        autoReconnectJob = scope.launch(Dispatchers.IO) {
+            delay(delayMs)
+            performAutoReconnectStep()
+        }
+    }
+
+    private suspend fun performAutoReconnectStep() {
+        if (!isStarted || isConnectedInternal || isReconnecting) return
+        isReconnecting = true
+        try {
+            val adapter = bluetoothAdapter
+            if (adapter == null || !adapter.isEnabled) {
+                withContext(Dispatchers.Main) {
+                    onStatusChanged(false, false, "Bluetoothが無効になっています")
+                }
+                return
+            }
+
+            // 1. 直前または設定済みのMACアドレスがあれば、スキャン不要のダイレクトGATT接続を最優先試行 (Android BLE最適解)
+            val targetAddress = savedDeviceAddress ?: connectedDeviceAddress
+            if (!targetAddress.isNullOrBlank()) {
+                Log.i(TAG, "Attempting direct GATT reconnection to known address: $targetAddress")
+                withContext(Dispatchers.Main) {
+                    onStatusChanged(false, true, "ESP32 ($targetAddress) へ直接接続中...")
+                }
+                val dev = try { adapter.getRemoteDevice(targetAddress) } catch (_: Exception) { null }
+                if (dev != null) {
+                    val directSuccess = tryDirectConnect(dev)
+                    if (directSuccess) {
+                        reconnectAttempts = 0
+                        return
                     }
                 }
-                delay(10000) // 10秒ごとに接続状況を維持・監視
+            }
+
+            // 2. ペアリング済み(Bonded)デバイスから該当機器を確認してダイレクト接続
+            refreshBondedDevices()
+            val bondedMatch = _bondedDevices.value.firstOrNull { devInfo ->
+                matchesTarget(devInfo.name, devInfo.address)
+            }
+            if (bondedMatch != null) {
+                val dev = try { adapter.getRemoteDevice(bondedMatch.address) } catch (_: Exception) { null }
+                if (dev != null) {
+                    val directSuccess = tryDirectConnect(dev)
+                    if (directSuccess) {
+                        reconnectAttempts = 0
+                        return
+                    }
+                }
+            }
+
+            // 3. スキャン実行（AndroidのScan Throttling対策: 前回のスキャン停止から最低6秒の休息間隔を保証）
+            val timeSinceLastScan = System.currentTimeMillis() - lastScanStopTime
+            if (timeSinceLastScan < 6000) {
+                delay(6000 - timeSinceLastScan)
+            }
+
+            if (isStarted && !isConnectedInternal) {
+                withContext(Dispatchers.Main) {
+                    onStatusChanged(false, true, "ESP32-C3を検索中...")
+                }
+                runTargetedScan(durationMs = 4500)
+            }
+        } finally {
+            isReconnecting = false
+            // 未接続の場合、バックオフ間隔をおいて次回の再接続をスケジュール (5s -> 8s -> 12s -> 15s)
+            if (isStarted && !isConnectedInternal) {
+                reconnectAttempts++
+                val nextDelay = when {
+                    reconnectAttempts <= 2 -> 5000L
+                    reconnectAttempts <= 5 -> 8000L
+                    reconnectAttempts <= 8 -> 12000L
+                    else -> 15000L
+                }
+                scheduleAutoReconnect(nextDelay)
+            } else {
+                reconnectAttempts = 0
             }
         }
     }
 
-    private fun triggerAutoReconnect() {
-        scope.launch {
-            delay(1500)
-            if (isStarted && bluetoothGatt == null && sppSocket == null && !isConnectedInternal) {
-                val connected = connectToBondedOrConnectedDevice()
-                if (!connected) {
-                    startScan()
-                }
+    private suspend fun tryDirectConnect(device: BluetoothDevice): Boolean = withContext(Dispatchers.Main) {
+        try {
+            closeAllConnections()
+            delay(350) // Android BluetoothスタックのHCIハンドル解放ウェイト
+            Log.i(TAG, "Connecting GATT directly to ${device.address}...")
+            bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+            } else {
+                device.connectGatt(context, false, gattCallback)
             }
+
+            // 最大5秒間接続完了を待機
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < 5000) {
+                if (isConnectedInternal && writeCharacteristic != null) {
+                    Log.i(TAG, "Direct GATT connection succeeded to ${device.address}")
+                    return@withContext true
+                }
+                if (bluetoothGatt == null) {
+                    // 切断またはエラーコールバックでGATTが閉じられた場合
+                    break
+                }
+                delay(200)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Direct connect exception: ${e.message}")
         }
+        false
     }
 
-    @SuppressLint("MissingPermission")
-    fun connectToBondedOrConnectedDevice(): Boolean {
-        val adapter = bluetoothAdapter ?: return false
-        if (!adapter.isEnabled) return false
+    private suspend fun runTargetedScan(durationMs: Long = 4500) {
+        val adapter = bluetoothAdapter ?: return
+        val scanner = adapter.bluetoothLeScanner ?: return
+        if (isScanning) return
 
-        // 1. Check if device is already connected via GATT in Android OS
-        try {
-            val connectedGatt = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT)
-            if (!connectedGatt.isNullOrEmpty()) {
-                for (dev in connectedGatt) {
-                    val dName = dev.name ?: ""
-                    if (matchesTarget(dName, dev.address)) {
-                        Log.i(TAG, "Target device already connected via GATT in OS: $dName (${dev.address}). Connecting...")
-                        connectToDevice(dev)
-                        return true
-                    }
-                }
+        val filters = mutableListOf<ScanFilter>()
+        savedDeviceAddress?.let { addr ->
+            if (BluetoothAdapter.checkBluetoothAddress(addr)) {
+                filters.add(ScanFilter.Builder().setDeviceAddress(addr).build())
             }
+        }
+        filters.add(ScanFilter.Builder().setServiceUuid(ParcelUuid(NUS_SERVICE_UUID)).build())
+
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setReportDelay(0)
+            .build()
+
+        isScanning = true
+        try {
+            scanner.startScan(filters, settings, scanCallback)
+            Log.d(TAG, "Targeted BLE scan started for ${durationMs}ms...")
         } catch (e: Exception) {
-            Log.d(TAG, "getConnectedDevices check: ${e.message}")
+            Log.w(TAG, "Targeted scan with filters failed, falling back to unfiltered: ${e.message}")
+            try {
+                scanner.startScan(null, settings, scanCallback)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Unfiltered scan also failed", e2)
+                isScanning = false
+                lastScanStopTime = System.currentTimeMillis()
+                return
+            }
         }
 
-        // 2. Check if device is in bonded (paired) devices
-        try {
-            val bonded = adapter.bondedDevices
-            if (!bonded.isNullOrEmpty()) {
-                val match = bonded.firstOrNull { matchesTarget(it.name ?: "", it.address) }
-                if (match != null) {
-                    Log.i(TAG, "Target found in paired (bonded) devices: ${match.name} (${match.address}). Connecting...")
-                    connectToDevice(match)
-                    return true
-                }
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "bondedDevices check: ${e.message}")
+        val start = System.currentTimeMillis()
+        while (isScanning && !isConnectedInternal && System.currentTimeMillis() - start < durationMs) {
+            delay(200)
         }
 
-        return false
+        stopScan()
+        lastScanStopTime = System.currentTimeMillis()
     }
 
     @SuppressLint("MissingPermission")
@@ -448,50 +674,9 @@ class BleSensorManager(
 
     @SuppressLint("MissingPermission")
     private fun startScan() {
-        val adapter = bluetoothAdapter
-        if (adapter == null || !adapter.isEnabled) {
-            onStatusChanged(false, false, "端末のBluetoothがOFFになっています")
-            return
+        scope.launch(Dispatchers.IO) {
+            runTargetedScan(4500)
         }
-
-        val scanner = adapter.bluetoothLeScanner
-        if (scanner == null) {
-            onStatusChanged(false, false, "BLEスキャナーが利用できません")
-            return
-        }
-
-        if (isScanning) return
-
-        onStatusChanged(false, true, "ESP32-C3を検索中...")
-        isScanning = true
-
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .setReportDelay(0)
-            .build()
-
-        // フィルターなしで開始（アドバタイズ内の名前またはサービスUUIDでScanCallback内で即判定）
-        try {
-            scanner.startScan(null, settings, scanCallback)
-            Log.d(TAG, "BLE scan started...")
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Permission denied for startScan", e)
-            onStatusChanged(false, false, "Bluetooth権限が必要です (アプリ権限を確認してください)")
-            isScanning = false
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start BLE scan", e)
-            isScanning = false
-        }
-
-        // 10秒後にスキャンを停止して再検索
-        mainHandler.postDelayed({
-            if (isScanning && bluetoothGatt == null) {
-                stopScan()
-                if (isStarted && !isConnectedInternal) {
-                    onStatusChanged(false, false, "ESP32-C3を探しています... (通電確認中)")
-                }
-            }
-        }, 10000)
     }
 
     @SuppressLint("MissingPermission")
@@ -502,12 +687,15 @@ class BleSensorManager(
             Log.d(TAG, "BLE scan stopped.")
         } catch (_: Exception) {}
         isScanning = false
+        lastScanStopTime = System.currentTimeMillis()
     }
 
     @SuppressLint("MissingPermission")
     fun connectToDevice(device: BluetoothDevice) {
         val devDisplayName = device.name ?: device.address
         connectedDeviceAddress = device.address
+        savedDeviceAddress = device.address
+        onDeviceAddressConnected?.invoke(device.address)
         onStatusChanged(false, true, "接続中: $devDisplayName...")
 
         // If device is strictly Classic Bluetooth (not LE), connect via SPP RFCOMM
@@ -517,19 +705,22 @@ class BleSensorManager(
             return
         }
 
-        try {
-            closeAllConnections()
-            bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
-            } else {
-                device.connectGatt(context, false, gattCallback)
+        scope.launch(Dispatchers.Main) {
+            try {
+                closeAllConnections()
+                delay(300) // HCI cleanup delay
+                bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                } else {
+                    device.connectGatt(context, false, gattCallback)
+                }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Bluetooth connect permission error", e)
+                onStatusChanged(false, false, "Bluetooth接続権限が必要です")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error connecting GATT", e)
+                onStatusChanged(false, false, "接続エラー: ${e.message}")
             }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Bluetooth connect permission error", e)
-            onStatusChanged(false, false, "Bluetooth接続権限が必要です")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error connecting GATT", e)
-            onStatusChanged(false, false, "接続エラー: ${e.message}")
         }
     }
 
@@ -568,7 +759,7 @@ class BleSensorManager(
                 withContext(Dispatchers.Main) {
                     onStatusChanged(false, false, "SPP切断: ${e.message ?: "再試行中"}")
                 }
-                triggerAutoReconnect()
+                scheduleAutoReconnect(1500)
             }
         }
     }
@@ -583,6 +774,8 @@ class BleSensorManager(
             val dev = adapter.getRemoteDevice(address)
             if (dev != null) {
                 targetDeviceName = dev.name ?: address
+                savedDeviceAddress = address
+                onDeviceAddressConnected?.invoke(address)
                 stopScan()
                 connectToDevice(dev)
             }
@@ -642,6 +835,16 @@ class BleSensorManager(
                 }
                 Log.i(TAG, "Notification configured on ${notifyChar.uuid}, writeChar=${writeCharacteristic?.uuid}")
                 isConnectedInternal = true
+                connectedDeviceAddress = gatt.device.address
+                savedDeviceAddress = gatt.device.address
+                onDeviceAddressConnected?.invoke(gatt.device.address)
+
+                // 優先度設定 & ハートビート監視開始
+                try {
+                    gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                } catch (_: Exception) {}
+                startHeartbeatLoop(gatt)
+
                 onStatusChanged(true, false, null)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to enable notification", e)
@@ -953,8 +1156,11 @@ class BleSensorManager(
 
     @SuppressLint("MissingPermission")
     private fun closeGatt() {
+        stopHeartbeatLoop()
         try {
             bluetoothGatt?.disconnect()
+        } catch (_: Exception) {}
+        try {
             bluetoothGatt?.close()
         } catch (_: Exception) {}
         bluetoothGatt = null
@@ -963,6 +1169,7 @@ class BleSensorManager(
     }
 
     fun closeSpp() {
+        stopHeartbeatLoop()
         try {
             sppReadJob?.cancel()
             sppReadJob = null
@@ -980,6 +1187,7 @@ class BleSensorManager(
     }
 
     private fun handleIncomingBytes(bytes: ByteArray) {
+        lastDataReceivedEpochMs = System.currentTimeMillis()
         val str = String(bytes, StandardCharsets.UTF_8)
         synchronized(lineBuffer) {
             lineBuffer.append(str)
@@ -1117,6 +1325,12 @@ class BleSensorManager(
             // 2. Try standard JSON status, button event or sensor messages
             val jsonObj = IrParserHelper.tryRepairAndParseJson(line)
             if (jsonObj != null) {
+                // Heartbeat Pong
+                if (jsonObj.optString("type") == "pong") {
+                    Log.d(TAG, "BLE Heartbeat Pong received from ESP32")
+                    return
+                }
+
                 // BLE OTA Status & Progress
                 if (jsonObj.optString("type") == "ota_status") {
                     val status = jsonObj.optString("status", "")

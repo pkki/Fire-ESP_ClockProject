@@ -64,6 +64,7 @@ class ClockPreferencesManager(context: Context) {
             espSensorEnabled = prefs.getBoolean("esp_sensor_enabled", true),
             espConnectionMode = prefs.getString("esp_connection_mode", "BLE") ?: "BLE",
             espBleDeviceName = prefs.getString("esp_ble_device_name", "ESP32C3-Sensor") ?: "ESP32C3-Sensor",
+            espBleDeviceAddress = prefs.getString("esp_ble_device_address", null),
             espBaudRate = prefs.getInt("esp_baud_rate", 115200),
             espSensorHost = prefs.getString("esp_sensor_host", "192.168.1.100") ?: "192.168.1.100",
             espSensorPort = prefs.getInt("esp_sensor_port", 80),
@@ -172,6 +173,7 @@ class ClockPreferencesManager(context: Context) {
         enabled: Boolean,
         mode: String,
         bleDeviceName: String = _state.value.espBleDeviceName,
+        bleDeviceAddress: String? = _state.value.espBleDeviceAddress,
         baud: Int,
         host: String,
         port: Int,
@@ -181,7 +183,7 @@ class ClockPreferencesManager(context: Context) {
         pressOffset: Float,
         showOnClock: Boolean
     ) {
-        prefs.edit()
+        val editor = prefs.edit()
             .putBoolean("esp_sensor_enabled", enabled)
             .putString("esp_connection_mode", mode)
             .putString("esp_ble_device_name", bleDeviceName)
@@ -193,11 +195,17 @@ class ClockPreferencesManager(context: Context) {
             .putFloat("esp_hum_offset", humOffset)
             .putFloat("esp_press_offset", pressOffset)
             .putBoolean("show_esp_sensor_on_clock", showOnClock)
-            .apply()
+
+        if (bleDeviceAddress != null) {
+            editor.putString("esp_ble_device_address", bleDeviceAddress)
+        }
+        editor.apply()
+
         _state.value = _state.value.copy(
             espSensorEnabled = enabled,
             espConnectionMode = mode,
             espBleDeviceName = bleDeviceName,
+            espBleDeviceAddress = bleDeviceAddress ?: _state.value.espBleDeviceAddress,
             espBaudRate = baud,
             espSensorHost = host,
             espSensorPort = port,
@@ -207,6 +215,13 @@ class ClockPreferencesManager(context: Context) {
             espPressOffset = pressOffset,
             showEspSensorOnClock = showOnClock
         )
+    }
+
+    fun saveLastConnectedBleAddress(address: String?) {
+        if (!address.isNullOrBlank()) {
+            prefs.edit().putString("esp_ble_device_address", address).apply()
+            _state.value = _state.value.copy(espBleDeviceAddress = address)
+        }
     }
 
     fun updateEewSettings(

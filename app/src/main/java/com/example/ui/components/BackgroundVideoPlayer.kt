@@ -34,9 +34,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeMute
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.text.font.FontFamily
+import com.example.audio.VideoPlayerManager
+import com.example.audio.VideoPlayerState
+import com.example.audio.VideoAspectRatio
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -133,6 +149,9 @@ fun ForegroundVideoOverlay(
     modifier: Modifier = Modifier
 ) {
     var showHud by remember { mutableStateOf(true) }
+    val videoState by VideoPlayerManager.playerState.collectAsState()
+    var isSeeking by remember { mutableStateOf(false) }
+    var seekProgress by remember { mutableFloatStateOf(0f) }
 
     AnimatedVisibility(
         visible = activeVideo != null && activeVideo.videoSourceType != ChimeVideoSourceType.NONE,
@@ -147,7 +166,7 @@ fun ForegroundVideoOverlay(
                     .background(Color.Black)
                     .clickable { showHud = !showHud }
             ) {
-                // 1. Video content (Custom video or preset animated background) in foreground
+                // 1. Video content in foreground
                 when (activeVideo.videoSourceType) {
                     ChimeVideoSourceType.CUSTOM_FILE -> {
                         if (!activeVideo.customVideoPath.isNullOrBlank()) {
@@ -186,7 +205,7 @@ fun ForegroundVideoOverlay(
                                         listOf(Color(0xEE0A0E17), Color.Transparent)
                                     )
                                 )
-                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -211,7 +230,8 @@ fun ForegroundVideoOverlay(
                                         text = activeVideo.customVideoName ?: activeVideo.videoSourceType.displayName,
                                         color = Color.White,
                                         fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
                                     Text(
                                         text = "📺 前面フルスクリーン再生中",
@@ -264,31 +284,175 @@ fun ForegroundVideoOverlay(
                             }
                         }
 
-                        // Bottom Minimal Hint Bar
-                        Row(
+                        // Center Quick Controls (Rewind, Play/Pause, Forward)
+                        if (activeVideo.videoSourceType == ChimeVideoSourceType.CUSTOM_FILE) {
+                            Row(
+                                modifier = Modifier.align(Alignment.Center),
+                                horizontalArrangement = Arrangement.spacedBy(28.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = { VideoPlayerManager.seekRelative(-10000L) },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x66000000))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FastRewind,
+                                        contentDescription = "-10秒",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF00E5FF))
+                                        .clickable { VideoPlayerManager.togglePlayPause() },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (videoState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (videoState.isPlaying) "一時停止" else "再生",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { VideoPlayerManager.seekRelative(10000L) },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x66000000))
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FastForward,
+                                        contentDescription = "+10秒",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Bottom Comprehensive HUD Controls Bar
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(Color.Transparent, Color(0xEE0A0E17))
+                                        listOf(Color.Transparent, Color(0xF00A0E17))
                                     )
                                 )
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 20.dp, vertical = 10.dp)
                         ) {
-                            Text(
-                                text = "画面タップで操作バーの表示/非表示",
-                                color = Color(0xAAFFFFFF),
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = if (activeVideo.playVideoAudio) "🔊 音声出力中" else "🔇 映像のみ",
-                                color = if (activeVideo.playVideoAudio) Color(0xFF4ADE80) else Color(0xFFAAAAAA),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            if (activeVideo.videoSourceType == ChimeVideoSourceType.CUSTOM_FILE) {
+                                // 1. Seekbar Track & Time Indicators
+                                val frac = if (isSeeking) seekProgress else videoState.progressFraction
+                                Slider(
+                                    value = frac,
+                                    onValueChange = {
+                                        isSeeking = true
+                                        seekProgress = it
+                                    },
+                                    onValueChangeFinished = {
+                                        val target = (seekProgress * videoState.durationMs.coerceAtLeast(1L)).toLong()
+                                        VideoPlayerManager.seekTo(target)
+                                        isSeeking = false
+                                    },
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = Color(0xFF00E5FF),
+                                        activeTrackColor = Color(0xFF00E5FF),
+                                        inactiveTrackColor = Color(0x44FFFFFF)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val currentMs = if (isSeeking) (seekProgress * videoState.durationMs).toLong() else videoState.currentPositionMs
+                                    Text(
+                                        text = "${VideoPlayerState.formatTimeMs(currentMs)} / ${videoState.durationFormatted}",
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+
+                                    // Playback Speed Options
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        listOf(0.75f, 1.0f, 1.25f, 1.5f).forEach { speed ->
+                                            val isSel = (videoState.playbackSpeed - speed).let { kotlin.math.abs(it) < 0.05f }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF),
+                                                modifier = Modifier.clickable { VideoPlayerManager.setPlaybackSpeed(speed) }
+                                            ) {
+                                                Text(
+                                                    text = "${speed}x",
+                                                    color = if (isSel) Color.Black else Color.White,
+                                                    fontSize = 10.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        // Loop Toggle
+                                        IconButton(
+                                            onClick = { VideoPlayerManager.setLooping(!videoState.isLooping) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (videoState.isLooping) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                                                contentDescription = "ループ切替",
+                                                tint = if (videoState.isLooping) Color(0xFF00E5FF) else Color(0xFF888896),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+
+                                        // Mute Toggle
+                                        IconButton(
+                                            onClick = { VideoPlayerManager.toggleMute() },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (videoState.isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                                                contentDescription = "ミュート",
+                                                tint = if (videoState.isMuted) Color(0xFFFF5252) else Color(0xFF4ADE80),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Preset ambient background label
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "画面タップで操作バーの表示/非表示",
+                                        color = Color(0xAAFFFFFF),
+                                        fontSize = 11.sp
+                                    )
+                                    Text(
+                                        text = if (activeVideo.playVideoAudio) "🔊 音声出力中" else "🔇 映像のみ",
+                                        color = if (activeVideo.playVideoAudio) Color(0xFF4ADE80) else Color(0xFFAAAAAA),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
                         }
                     }
                 }

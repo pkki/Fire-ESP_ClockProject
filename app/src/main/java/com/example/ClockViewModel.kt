@@ -22,6 +22,9 @@ import com.example.audio.CustomVideoFileManager
 import com.example.audio.MusicPlayerManager
 import com.example.audio.MusicPlayerState
 import com.example.audio.MusicRepeatMode
+import com.example.audio.VideoPlayerManager
+import com.example.audio.VideoPlayerState
+import com.example.audio.VideoAspectRatio
 import com.example.camera.AudioStreamManager
 import com.example.camera.CameraStreamManager
 import com.example.camera.IpCameraConfig
@@ -202,6 +205,13 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAlarmRinging = MutableStateFlow(false)
     val isAlarmRinging: StateFlow<Boolean> = _isAlarmRinging.asStateFlow()
 
+    // --- Hourly & Scheduled Chime Ringing State (時報チャイム鳴動状態) ---
+    private val _isChimeRinging = MutableStateFlow(false)
+    val isChimeRinging: StateFlow<Boolean> = _isChimeRinging.asStateFlow()
+
+    private val _chimeRingingInfo = MutableStateFlow<String?>(null)
+    val chimeRingingInfo: StateFlow<String?> = _chimeRingingInfo.asStateFlow()
+
     private val _isAlarmSnoozed = MutableStateFlow(false)
     val isAlarmSnoozed: StateFlow<Boolean> = _isAlarmSnoozed.asStateFlow()
 
@@ -235,6 +245,9 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Dedicated Music Player State ---
     val musicPlayerState: StateFlow<MusicPlayerState> = MusicPlayerManager.playerState
+
+    // --- Dedicated Video Player State ---
+    val videoPlayerState: StateFlow<VideoPlayerState> = VideoPlayerManager.playerState
 
     // --- Master Equalizer & Bass Protection State ---
     val equalizerState: StateFlow<EqualizerState> = AudioEqualizerManager.equalizerState
@@ -479,10 +492,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
         // Sync ESP sensor preferences and start connection
         val espPref = preferences.value
+        espSensorManager.onBleAddressConnected = { address ->
+            prefsManager.saveLastConnectedBleAddress(address)
+        }
         espSensorManager.updateConfig(
             enabled = espPref.espSensorEnabled,
             mode = espPref.espConnectionMode,
             targetBleName = espPref.espBleDeviceName,
+            targetBleAddress = espPref.espBleDeviceAddress,
             baud = espPref.espBaudRate,
             newHost = espPref.espSensorHost,
             newPort = espPref.espSensorPort,
@@ -710,11 +727,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun connectBleDevice(device: BleDeviceInfo) {
+        prefsManager.saveLastConnectedBleAddress(device.address)
+        espSensorManager.bleSensorManager.savedDeviceAddress = device.address
         espSensorManager.bleSensorManager.connectToAddress(device.address)
         updateEspSensorPreferences(
             enabled = true,
             mode = "BLE",
-            bleDeviceName = device.name
+            bleDeviceName = device.name,
+            bleDeviceAddress = device.address
         )
     }
 
@@ -857,6 +877,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         enabled: Boolean = preferences.value.espSensorEnabled,
         mode: String = preferences.value.espConnectionMode,
         bleDeviceName: String = preferences.value.espBleDeviceName,
+        bleDeviceAddress: String? = preferences.value.espBleDeviceAddress,
         baud: Int = preferences.value.espBaudRate,
         host: String = preferences.value.espSensorHost,
         port: Int = preferences.value.espSensorPort,
@@ -870,6 +891,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             enabled = enabled,
             mode = mode,
             bleDeviceName = bleDeviceName,
+            bleDeviceAddress = bleDeviceAddress,
             baud = baud,
             host = host,
             port = port,
@@ -883,6 +905,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             enabled = enabled,
             mode = mode,
             targetBleName = bleDeviceName,
+            targetBleAddress = bleDeviceAddress,
             baud = baud,
             newHost = host,
             newPort = port,
@@ -1260,6 +1283,8 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                         onStopMusic = { stopMusic() },
                         onSetMusicVolume = { vol -> setMusicPlayerVolume(vol) },
                         onSeekMusic = { pos -> seekMusicTo(pos) },
+                        onSeekMusicRelative = { offset -> seekMusicRelative(offset) },
+                        onSetMusicSpeed = { speed -> setMusicPlaybackSpeed(speed) },
                         onSetMusicRepeatMode = { mode -> setMusicRepeatMode(mode) },
                         onVoiceCommand = { voiceAssistantManager.processTextCommand(it) },
                         equalizerStateProvider = { equalizerState.value },
@@ -1522,14 +1547,24 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                                         } else {
                                             irRemoteManager.onAlarmTriggered()
                                         }
+                                        _isChimeRinging.value = true
+                                        _chimeRingingInfo.value = chime.label.ifBlank { "スケジュールチャイム" }
                                         val chimeVol = if (chime.volume > 0f) chime.volume else currentPrefs.chimeVolume
                                         if (chime.isVideoOnlyAudio && chime.videoSourceType == ChimeVideoSourceType.NONE) {
                                             playWithTemporaryVolume(chimeVol) { onDone ->
-                                                ChimeSynthesizer.playChime(chime.builtInSound, 1.0f, onComplete = onDone)
+                                                ChimeSynthesizer.playChime(chime.builtInSound, 1.0f, onComplete = {
+                                                    _isChimeRinging.value = false
+                                                    _chimeRingingInfo.value = null
+                                                    onDone()
+                                                })
                                             }
                                         } else {
                                             playWithTemporaryVolume(chimeVol) { onDone ->
-                                                ChimeAudioPlayer.playScheduledChime(getApplication(), chime, onComplete = onDone)
+                                                ChimeAudioPlayer.playScheduledChime(getApplication(), chime, onComplete = {
+                                                    _isChimeRinging.value = false
+                                                    _chimeRingingInfo.value = null
+                                                    onDone()
+                                                })
                                             }
                                             if (chime.videoSourceType != ChimeVideoSourceType.NONE) {
                                                 triggerBackgroundVideo(chime)
@@ -1554,19 +1589,33 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                                     hour24 >= currentPrefs.chimeStartHour || hour24 <= currentPrefs.chimeEndHour
                                 }
                                 if (inWindow) {
+                                    _isChimeRinging.value = true
+                                    _chimeRingingInfo.value = "時報チャイム (%02d:00)".format(hour24)
                                     if (currentPrefs.hourlyChimeSourceType == com.example.model.ChimeAudioSourceType.CUSTOM_FILE &&
                                         !currentPrefs.hourlyCustomAudioPath.isNullOrEmpty()
                                     ) {
+                                        _playingAudioPath.value = currentPrefs.hourlyCustomAudioPath
                                         playWithTemporaryVolume(currentPrefs.chimeVolume) { onDone ->
                                             com.example.audio.ChimeAudioPlayer.playCustomFile(
                                                 currentPrefs.hourlyCustomAudioPath,
                                                 1.0f,
-                                                onComplete = onDone
+                                                onComplete = {
+                                                    if (_playingAudioPath.value == currentPrefs.hourlyCustomAudioPath) {
+                                                        _playingAudioPath.value = null
+                                                    }
+                                                    _isChimeRinging.value = false
+                                                    _chimeRingingInfo.value = null
+                                                    onDone()
+                                                }
                                             )
                                         }
                                     } else {
                                         playWithTemporaryVolume(currentPrefs.chimeVolume) { onDone ->
-                                            ChimeSynthesizer.playChime(currentPrefs.chimeSound, 1.0f, onComplete = onDone)
+                                            ChimeSynthesizer.playChime(currentPrefs.chimeSound, 1.0f, onComplete = {
+                                                _isChimeRinging.value = false
+                                                _chimeRingingInfo.value = null
+                                                onDone()
+                                            })
                                         }
                                     }
                                 }
@@ -1580,9 +1629,15 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                                     hour24 >= currentPrefs.chimeStartHour || hour24 <= currentPrefs.chimeEndHour
                                 }
                                 if (inWindow) {
+                                    _isChimeRinging.value = true
+                                    _chimeRingingInfo.value = "時報チャイム (%02d:30)".format(hour24)
                                     val halfVol = (currentPrefs.chimeVolume * 0.7f).coerceIn(0.05f, 1.0f)
                                     playWithTemporaryVolume(halfVol) { onDone ->
-                                        ChimeSynthesizer.playSinglePing(1.0f, onComplete = onDone)
+                                        ChimeSynthesizer.playSinglePing(1.0f, onComplete = {
+                                            _isChimeRinging.value = false
+                                            _chimeRingingInfo.value = null
+                                            onDone()
+                                        })
                                     }
                                 }
                             }
@@ -2243,6 +2298,8 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     // --- Dedicated Music Player Control & Volume Management ---
 
     fun playMusic(track: CustomAudioItem, playlist: List<CustomAudioItem> = customAudioList.value) {
+        VideoPlayerManager.stop()
+        dismissBackgroundVideo()
         val volume = preferences.value.musicPlayerVolume
         val repeatMode = try {
             MusicRepeatMode.valueOf(preferences.value.musicPlayerRepeatMode)
@@ -2283,6 +2340,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         MusicPlayerManager.seekTo(positionMs)
     }
 
+    fun seekMusicRelative(offsetMs: Long) {
+        MusicPlayerManager.seekRelative(offsetMs)
+    }
+
+    fun setMusicPlaybackSpeed(speed: Float) {
+        MusicPlayerManager.setPlaybackSpeed(speed)
+    }
+
     fun setMusicPlayerVolume(volume: Float) {
         val clamped = volume.coerceIn(0f, 1f)
         MusicPlayerManager.setVolume(clamped)
@@ -2298,6 +2363,103 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         val nextMode = MusicPlayerManager.cycleRepeatMode()
         prefsManager.updatePreferences(preferences.value.copy(musicPlayerRepeatMode = nextMode.name))
         return nextMode
+    }
+
+    // --- Video Player Controls ---
+
+    fun playVideoInMusicPlayer(
+        video: CustomVideoItem,
+        playAudio: Boolean = true,
+        volume: Float = preferences.value.musicPlayerVolume,
+        isLooping: Boolean = true
+    ) {
+        MusicPlayerManager.stop()
+        dismissBackgroundVideo()
+        if (playAudio) {
+            applyTemporaryPlaybackVolume(volume)
+        }
+        VideoPlayerManager.playVideo(video, VideoDisplayLayer.BACKGROUND, playAudio, volume, isLooping)
+    }
+
+    fun playCustomVideoDirect(
+        video: CustomVideoItem,
+        displayLayer: VideoDisplayLayer = VideoDisplayLayer.BACKGROUND,
+        playAudio: Boolean = true,
+        volume: Float = preferences.value.chimeVolume,
+        isLooping: Boolean = true
+    ) {
+        videoDismissJob?.cancel()
+        MusicPlayerManager.stop()
+        if (playAudio) {
+            applyTemporaryPlaybackVolume(volume)
+        }
+        VideoPlayerManager.playVideo(video, displayLayer, playAudio, volume, isLooping)
+        _activeBackgroundVideo.value = ActiveBackgroundVideo(
+            chimeId = null,
+            chimeLabel = if (displayLayer == VideoDisplayLayer.FOREGROUND) "前面動画再生" else "背景動画再生",
+            videoSourceType = ChimeVideoSourceType.CUSTOM_FILE,
+            customVideoPath = video.filePath,
+            customVideoName = video.name,
+            playVideoAudio = playAudio,
+            volume = volume,
+            startTimeMs = System.currentTimeMillis(),
+            durationSeconds = if (isLooping) 0 else ScheduledChime.DURATION_VIDEO_LENGTH,
+            displayLayer = displayLayer
+        )
+    }
+
+    fun toggleVideoPlayPause() {
+        VideoPlayerManager.togglePlayPause()
+    }
+
+    fun pauseVideo() {
+        VideoPlayerManager.pause()
+    }
+
+    fun resumeVideo() {
+        VideoPlayerManager.resume()
+    }
+
+    fun stopVideo() {
+        VideoPlayerManager.stop()
+        dismissBackgroundVideo()
+    }
+
+    fun seekVideoTo(positionMs: Long) {
+        VideoPlayerManager.seekTo(positionMs)
+    }
+
+    fun seekVideoRelative(offsetMs: Long) {
+        VideoPlayerManager.seekRelative(offsetMs)
+    }
+
+    fun setVideoVolume(volume: Float) {
+        val clamped = volume.coerceIn(0f, 1f)
+        VideoPlayerManager.setVolume(clamped)
+    }
+
+    fun toggleVideoMute() {
+        VideoPlayerManager.toggleMute()
+    }
+
+    fun setVideoMuted(muted: Boolean) {
+        VideoPlayerManager.setMuted(muted)
+    }
+
+    fun setVideoLooping(loop: Boolean) {
+        VideoPlayerManager.setLooping(loop)
+    }
+
+    fun setVideoPlaybackSpeed(speed: Float) {
+        VideoPlayerManager.setPlaybackSpeed(speed)
+    }
+
+    fun setVideoAspectRatio(ratio: VideoAspectRatio) {
+        VideoPlayerManager.setAspectRatio(ratio)
+    }
+
+    fun cycleVideoAspectRatio(): VideoAspectRatio {
+        return VideoPlayerManager.cycleAspectRatio()
     }
 
     fun getVideoDurationSeconds(filePath: String?): Int {
@@ -2543,11 +2705,33 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun stopChime() {
+        _isChimeRinging.value = false
+        _chimeRingingInfo.value = null
+        if (_playingAudioPath.value != null &&
+            _playingAudioPath.value != MusicPlayerManager.playerState.value.currentTrack?.filePath
+        ) {
+            _playingAudioPath.value = null
+        }
+        ChimeSynthesizer.stopChime()
+        ChimeAudioPlayer.stop()
+        forceRestoreDeviceVolume()
+    }
+
     fun stopAlarm() {
         _isAlarmRinging.value = false
         _isAlarmSnoozed.value = false
         _alarmSnoozeRemainingSec.value = 0
+        _isChimeRinging.value = false
+        _chimeRingingInfo.value = null
+        if (_playingAudioPath.value != null &&
+            _playingAudioPath.value != MusicPlayerManager.playerState.value.currentTrack?.filePath
+        ) {
+            _playingAudioPath.value = null
+        }
         ChimeSynthesizer.stopAlarm()
+        ChimeSynthesizer.stopChime()
+        ChimeAudioPlayer.stop()
         forceRestoreDeviceVolume()
         cancelVibration()
     }
@@ -2712,10 +2896,12 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         // Execute corresponding action with zero latency
         when (btnId) {
             0 -> {
-                // P0: ALARM_STOP / FIRE_ALERT_STOP
+                // P0: ALARM_STOP / FIRE_ALERT_STOP / CHIME_STOP
                 if (_isFireAlertRinging.value) {
                     dismissFireAlert()
                 } else if (_isAlarmRinging.value) {
+                    stopAlarm()
+                } else if (_isChimeRinging.value || ChimeSynthesizer.isChimePlaying() || ChimeAudioPlayer.isPlaying()) {
                     stopAlarm()
                 } else if (_timerState.value.isFinished || _timerState.value.isRunning) {
                     resetTimer()
@@ -2766,8 +2952,14 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun triggerManualChime() {
         val pref = preferences.value
+        _isChimeRinging.value = true
+        _chimeRingingInfo.value = "時報チャイム"
         playWithTemporaryVolume(pref.chimeVolume) { onDone ->
-            ChimeSynthesizer.playChime(pref.chimeSound, 1.0f, onComplete = onDone)
+            ChimeSynthesizer.playChime(pref.chimeSound, 1.0f, onComplete = {
+                _isChimeRinging.value = false
+                _chimeRingingInfo.value = null
+                onDone()
+            })
         }
     }
 

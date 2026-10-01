@@ -14,7 +14,7 @@ object WebDashboardMusic {
 
     fun getMusicTabNavButtonHtml(): String {
         return """
-            <button class="tab-btn" onclick="switchTab('music', this)">
+            <button class="tab-btn active" onclick="switchTab('music', this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path d="M9 18V5l12-2v13"></path>
                     <circle cx="6" cy="18" r="3"></circle>
@@ -183,7 +183,7 @@ object WebDashboardMusic {
     fun getMusicTabContentHtml(): String {
         return """
         <!-- TAB: MUSIC PLAYER (音楽プレイヤー) -->
-        <div id="tab-music" class="tab-content">
+        <div id="tab-music" class="tab-content active">
             <!-- Hero Music Console Card -->
             <div class="music-player-card">
                 <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
@@ -215,10 +215,20 @@ object WebDashboardMusic {
                         </div>
                     </div>
 
-                    <!-- Top Action Right: Device Indicator -->
-                    <div style="text-align:right;">
+                    <!-- Top Action Right: Device Indicator & Speed Control -->
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
                         <span style="font-size:0.75rem; color:var(--text-muted);">再生先: <strong>Android 本体スピーカー</strong></span>
-                        <div style="font-size:0.72rem; color:var(--primary); margin-top:2px;">♪ 高音質オーディオ出力</div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                            <span style="font-size:0.75rem; color:var(--text-muted);">速度:</span>
+                            <select id="mpSpeedSelect" onchange="onMusicSpeedChange(this.value)" style="padding:2px 8px; font-size:0.75rem; width:auto; border-radius:4px; background:var(--surface-subtle); color:var(--text-main); border:1px solid var(--border-color);">
+                                <option value="0.5">0.5x</option>
+                                <option value="0.75">0.75x</option>
+                                <option value="1.0" selected>1.0x (標準)</option>
+                                <option value="1.25">1.25x</option>
+                                <option value="1.5">1.5x</option>
+                                <option value="2.0">2.0x</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -243,7 +253,10 @@ object WebDashboardMusic {
                     </div>
 
                     <!-- Core Playback Buttons -->
-                    <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <button class="btn btn-outline btn-sm" onclick="musicSeekRelative(-10000)" title="10秒戻る" style="font-family:var(--font-mono); font-size:0.75rem;">
+                            ⏪ -10s
+                        </button>
                         <button class="btn btn-outline" style="border-radius:50%; width:42px; height:42px; padding:0; justify-content:center;" onclick="musicAction('prev')" title="前の曲 / 先頭に戻る">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:20px; height:20px;"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
                         </button>
@@ -252,6 +265,9 @@ object WebDashboardMusic {
                         </button>
                         <button class="btn btn-outline" style="border-radius:50%; width:42px; height:42px; padding:0; justify-content:center;" onclick="musicAction('next')" title="次の曲">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:20px; height:20px;"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                        </button>
+                        <button class="btn btn-outline btn-sm" onclick="musicSeekRelative(10000)" title="10秒進む" style="font-family:var(--font-mono); font-size:0.75rem;">
+                            +10s ⏩
                         </button>
                         <button class="btn btn-danger btn-sm" style="margin-left:6px;" onclick="musicAction('stop')" title="完全停止">
                             <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px; height:14px;"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
@@ -876,6 +892,25 @@ object WebDashboardMusic {
                 var targetMs = Math.round((val / 1000.0) * lastMpState.durationMs);
                 musicAction('seek', { positionMs: targetMs });
             }
+        }
+
+        function musicSeekRelative(offsetMs) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'music_seek_relative', offsetMs: offsetMs }));
+            } else {
+                musicAction('seek_relative', { offsetMs: offsetMs });
+            }
+            showToast((offsetMs > 0 ? '+' : '') + Math.round(offsetMs / 1000) + 's スキップ');
+        }
+
+        function onMusicSpeedChange(speedVal) {
+            var speed = parseFloat(speedVal);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'music_speed', speed: speed }));
+            } else {
+                musicAction('speed', { speed: speed });
+            }
+            showToast('再生速度: ' + speedVal + 'x');
         }
 
         function cycleMusicRepeatMode() {

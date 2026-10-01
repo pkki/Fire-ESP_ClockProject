@@ -103,74 +103,96 @@ fun IrRemoteSettingsTab(
                                 )
                             }
                         }
-
-                        OutlinedButton(
-                            onClick = { showCircuitDialog = true },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("2SC1815 回路図", style = MaterialTheme.typography.labelMedium)
-                        }
                     }
 
                     Spacer(Modifier.height(14.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Spacer(Modifier.height(14.dp))
 
-                    // 学習モード操作部
-                    Row(
+                    // 学習モード・追加操作部 (2行で広々としたタッチ領域を確保)
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (irLearnState.isLearning) {
-                            Button(
-                                onClick = { viewModel.stopIrLearning() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                modifier = Modifier.weight(1.1f)
-                            ) {
-                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("学習を停止", fontSize = 13.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (irLearnState.isLearning) {
+                                Button(
+                                    onClick = { viewModel.stopIrLearning() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .height(48.dp)
+                                ) {
+                                    Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("学習を停止", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.startIrLearning() },
+                                    enabled = espSensorData.isConnected,
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1.2f)
+                                        .height(48.dp)
+                                ) {
+                                    Icon(Icons.Default.Sensors, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("リモコン学習", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
-                        } else {
-                            Button(
-                                onClick = { viewModel.startIrLearning() },
-                                enabled = espSensorData.isConnected,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                modifier = Modifier.weight(1.1f)
+
+                            FilledTonalButton(
+                                onClick = { showRawImportDialog = true },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1.2f)
+                                    .height(48.dp)
                             ) {
-                                Icon(Icons.Default.Sensors, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.AcUnit, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("リモコン学習", fontSize = 13.sp)
+                                Text("エアコン/RAW解析", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
-                        OutlinedButton(
-                            onClick = {
-                                editingButton = IrRemoteButton(
-                                    name = "新規リモコン",
-                                    category = IrDeviceCategory.LIGHTING
-                                )
-                                showAddDialog = true
-                            },
-                            modifier = Modifier.weight(0.95f),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("手動登録", fontSize = 12.5.sp)
-                        }
+                            OutlinedButton(
+                                onClick = {
+                                    editingButton = IrRemoteButton(
+                                        name = "新規リモコン",
+                                        category = IrDeviceCategory.LIGHTING
+                                    )
+                                    showAddDialog = true
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("手動登録", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
 
-                        FilledTonalButton(
-                            onClick = { showRawImportDialog = true },
-                            modifier = Modifier.weight(1.15f),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.AcUnit, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("エアコン/RAW解析", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            OutlinedButton(
+                                onClick = { showCircuitDialog = true },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                            ) {
+                                Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("2SC1815 回路図", fontSize = 13.sp)
+                            }
                         }
                     }
 
@@ -512,22 +534,23 @@ fun IrButtonCard(
                     }
                 }
 
-                // 送信ボタン
+                // 送信ボタン (大ボタン化)
                 Button(
                     onClick = {
                         isSending = true
                         onSend()
                     },
                     enabled = isConnected,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = parseHexColor(button.colorHex)
                     ),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                    modifier = Modifier.height(46.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
                 ) {
-                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("発信", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("発信", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -574,18 +597,36 @@ fun IrButtonCard(
                 }
             }
 
-            // 編集 / 削除 アクション
+            // 編集 / 削除 アクション (大きく分かりやすいボタン)
+            Spacer(Modifier.height(10.dp))
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.End
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "編集", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(
+                    onClick = onEdit,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("編集", fontSize = 13.sp)
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = MaterialTheme.colorScheme.error)
+
+                Spacer(Modifier.width(8.dp))
+
+                OutlinedButton(
+                    onClick = onDelete,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("削除", fontSize = 13.sp, color = MaterialTheme.colorScheme.error)
                 }
             }
         }

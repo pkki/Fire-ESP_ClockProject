@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -65,6 +66,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FlipCameraAndroid
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
@@ -793,56 +795,67 @@ private fun IpCameraSettingsContent(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(16.dp))
                             .background(Color(0x18FFFFFF))
-                            .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(14.dp))
-                            .padding(14.dp)
+                            .border(1.2.dp, Color(0x33FFFFFF), RoundedCornerShape(16.dp))
+                            .padding(16.dp)
                     ) {
                         Text(
                             text = "ブラウザ / 外部視聴アクセスURL",
-                            fontSize = 12.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF00E5FF)
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(Color(0xFF08080C))
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("IP Camera URL", status.serverUrl))
+                                    Toast.makeText(context, "URLをコピーしました: ${status.serverUrl}", Toast.LENGTH_SHORT).show()
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = status.serverUrl,
                                 color = Color.White,
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold
                             )
-                            IconButton(
+                            Button(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("IP Camera URL", status.serverUrl))
                                     Toast.makeText(context, "URLをコピーしました: ${status.serverUrl}", Toast.LENGTH_SHORT).show()
                                 },
-                                modifier = Modifier.size(28.dp)
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                modifier = Modifier.height(42.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "コピー",
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(16.dp)
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(18.dp)
                                 )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("コピー", fontSize = 13.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = "同一Wi-Fi内のPC、スマホ、Home Assistant等から上記URLを開くだけで映像を確認できます。\nMJPEG直接URL: ${status.serverUrl}/video",
-                            fontSize = 10.sp,
-                            color = Color(0xFF888896),
-                            lineHeight = 14.sp
+                            fontSize = 11.5.sp,
+                            color = Color(0xFFCBD5E1),
+                            lineHeight = 16.sp
                         )
                     }
 
@@ -887,53 +900,89 @@ private fun IpCameraSettingsContent(
 
         // Camera Options
         item {
-            Text(
-                text = "カメラ & 配信設定",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp, 18.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFF00E5FF))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "カメラ & 配信設定",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Front / Rear Lens Switch
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color(0x18FFFFFF))
-                        .padding(12.dp)
+                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(16.dp))
+                        .padding(14.dp)
                 ) {
-                    Text("使用カメラレンズ", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("使用カメラレンズ", fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
+                        Button(
                             onClick = { onUpdateConfig(config.copy(useFrontCamera = true)) },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (config.useFrontCamera) Color(0x3300E5FF) else Color.Transparent
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (config.useFrontCamera) Color(0xFF00E5FF) else Color(0x22FFFFFF)
                             ),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.CameraFront, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Icon(
+                                Icons.Default.CameraFront,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (config.useFrontCamera) Color.Black else Color.White
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("内カメラ", fontSize = 11.sp, color = Color.White)
+                            Text(
+                                "内カメラ",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (config.useFrontCamera) Color.Black else Color.White
+                            )
                         }
-                        OutlinedButton(
+                        Button(
                             onClick = { onUpdateConfig(config.copy(useFrontCamera = false)) },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (!config.useFrontCamera) Color(0x3300E5FF) else Color.Transparent
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!config.useFrontCamera) Color(0xFF00E5FF) else Color(0x22FFFFFF)
                             ),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.CameraRear, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Icon(
+                                Icons.Default.CameraRear,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = if (!config.useFrontCamera) Color.Black else Color.White
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("外カメラ", fontSize = 11.sp, color = Color.White)
+                            Text(
+                                "外カメラ",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (!config.useFrontCamera) Color.Black else Color.White
+                            )
                         }
                     }
                 }
@@ -942,28 +991,40 @@ private fun IpCameraSettingsContent(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color(0x18FFFFFF))
-                        .padding(12.dp)
+                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(16.dp))
+                        .padding(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("フレームレート", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                        Text("${config.targetFps} FPS", fontSize = 12.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                        Text("フレームレート", fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("${config.targetFps} FPS", fontSize = 13.5.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(5, 10, 15, 20).forEach { fpsOpt ->
-                            OutlinedButton(
+                            val isSel = config.targetFps == fpsOpt
+                            Button(
                                 onClick = { onUpdateConfig(config.copy(targetFps = fpsOpt)) },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (config.targetFps == fpsOpt) Color(0x3300E5FF) else Color.Transparent
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF)
                                 ),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp)
                             ) {
-                                Text("$fpsOpt", fontSize = 10.sp, color = Color.White)
+                                Text(
+                                    "$fpsOpt",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel) Color.Black else Color.White
+                                )
                             }
                         }
                     }
@@ -972,28 +1033,38 @@ private fun IpCameraSettingsContent(
                 // Resolution
                 Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
+                        .weight(1.1f)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(Color(0x18FFFFFF))
-                        .padding(12.dp)
+                        .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(16.dp))
+                        .padding(14.dp)
                 ) {
-                    Text("配信解像度", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("配信解像度", fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(
                             Triple("QVGA", 320, 240),
                             Triple("VGA", 640, 480),
                             Triple("HD", 1280, 720)
                         ).forEach { (label, w, h) ->
                             val isSel = config.resolutionWidth == w
-                            OutlinedButton(
+                            Button(
                                 onClick = { onUpdateConfig(config.copy(resolutionWidth = w, resolutionHeight = h)) },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (isSel) Color(0x3300E5FF) else Color.Transparent
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF)
                                 ),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
                             ) {
-                                Text(label, fontSize = 10.sp, color = Color.White)
+                                Text(
+                                    label,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel) Color.Black else Color.White
+                                )
                             }
                         }
                     }
@@ -1356,14 +1427,16 @@ private fun ChimesSettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("毎正時チャイムの音色変更", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("毎正時チャイムの音色変更", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     OutlinedButton(
                         onClick = { viewModel.testCurrentChime() },
-                        modifier = Modifier.height(30.dp)
+                        modifier = Modifier.height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF00E5FF))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("現在の音を試聴", fontSize = 11.sp, color = Color(0xFF00E5FF))
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF00E5FF))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("現在の音を試聴", fontSize = 13.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
@@ -1390,34 +1463,37 @@ private fun ChimesSettingsContent(
                             Row(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
+                                    .clip(RoundedCornerShape(12.dp))
                                     .background(if (isSelected) Color(0x3300E5FF) else Color(0x10FFFFFF))
                                     .border(
                                         width = if (isSelected) 1.5.dp else 0.5.dp,
                                         color = if (isSelected) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                        shape = RoundedCornerShape(10.dp)
+                                        shape = RoundedCornerShape(12.dp)
                                     )
                                     .clickable { viewModel.selectChimeSound(sound) }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     color = if (isSelected) Color(0xFF00E5FF) else Color.White,
                                     modifier = Modifier.weight(1f)
                                 )
                                 IconButton(
                                     onClick = { viewModel.testChimeSound(sound) },
-                                    modifier = Modifier.size(26.dp)
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isSelected) Color(0x3300E5FF) else Color(0x14FFFFFF))
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.PlayArrow,
                                         contentDescription = "試聴",
-                                        tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFFAAAAAA),
-                                        modifier = Modifier.size(16.dp)
+                                        tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
@@ -1427,26 +1503,28 @@ private fun ChimesSettingsContent(
                 }
 
                 // Custom Audio selection for Hourly Chime
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("📁 取り込んだカスタム音声 (${customAudioList.size}件)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
+                    Text("📁 取り込んだカスタム音声 (${customAudioList.size}件)", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
                     OutlinedButton(
                         onClick = { audioPickerLauncher.launch("audio/*") },
-                        modifier = Modifier.height(28.dp)
+                        modifier = Modifier.height(38.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFF00E5FF))
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF00E5FF))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("音声を追加", fontSize = 10.sp, color = Color(0xFF00E5FF))
+                        Text("音声を追加", fontSize = 12.5.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
 
                 if (customAudioList.isEmpty()) {
-                    Text("まだ音声ファイルがありません。「＋ 音声を追加」またはWeb管理画面からMP3/WAVを追加できます。", fontSize = 10.sp, color = Color(0xFF888888), modifier = Modifier.padding(vertical = 4.dp))
+                    Text("まだ音声ファイルがありません。「＋ 音声を追加」またはWeb管理画面からMP3/WAVを追加できます。", fontSize = 11.sp, color = Color(0xFF888888), modifier = Modifier.padding(vertical = 4.dp))
                 } else {
                     customAudioList.chunked(2).forEach { rowAudios ->
                         Row(
@@ -1458,35 +1536,38 @@ private fun ChimesSettingsContent(
                                 Row(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
+                                        .clip(RoundedCornerShape(12.dp))
                                         .background(if (isSelected) Color(0x3300E5FF) else Color(0x10FFFFFF))
                                         .border(
                                             width = if (isSelected) 1.5.dp else 0.5.dp,
                                             color = if (isSelected) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                            shape = RoundedCornerShape(10.dp)
+                                            shape = RoundedCornerShape(12.dp)
                                         )
                                         .clickable { viewModel.selectHourlyCustomAudio(audio) }
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
                                         text = audio.name,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                         color = if (isSelected) Color(0xFF00E5FF) else Color.White,
                                         maxLines = 1,
                                         modifier = Modifier.weight(1f)
                                     )
                                     IconButton(
                                         onClick = { viewModel.testCustomAudio(audio.filePath) },
-                                        modifier = Modifier.size(26.dp)
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSelected) Color(0x3300E5FF) else Color(0x14FFFFFF))
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.PlayArrow,
                                             contentDescription = "試聴",
-                                            tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFFAAAAAA),
-                                            modifier = Modifier.size(16.dp)
+                                            tint = if (isSelected) Color(0xFF00E5FF) else Color(0xFFCBD5E1),
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
@@ -1499,7 +1580,7 @@ private fun ChimesSettingsContent(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 // Volume slider
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1509,24 +1590,25 @@ private fun ChimesSettingsContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             "時報チャイム音量: ${(preferences.chimeVolume * 100).toInt()}%",
-                            fontSize = 12.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                         Text(
                             "時報が鳴る時の音量です（鳴動時のみ一時適用され、終了後に元の端末音量へ戻ります）",
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             color = Color(0xFFAAAAAA)
                         )
                     }
                     OutlinedButton(
                         onClick = { viewModel.testCurrentChime() },
-                        modifier = Modifier.height(28.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        modifier = Modifier.height(38.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("音量テスト", fontSize = 11.sp, color = Color(0xFF00E5FF))
+                        Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("音量テスト", fontSize = 12.5.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                     }
                 }
                 Slider(
@@ -1552,24 +1634,26 @@ private fun ChimesSettingsContent(
                 Column {
                     Text(
                         text = "登録済みスケジュールチャイム (${scheduledChimes.size}件)",
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
                         text = "指定時刻にカスタム音・背景動画演出を最優先再生",
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         color = Color(0xFF00E5FF)
                     )
                 }
                 Button(
                     onClick = { isCreatingChime = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                    modifier = Modifier.height(34.dp)
+                    modifier = Modifier.height(42.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("新規追加", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("新規追加", color = Color.Black, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1650,16 +1734,35 @@ private fun ChimesSettingsContent(
                         }
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { viewModel.testPlayScheduledChime(chime) }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = "試聴", tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        IconButton(
+                            onClick = { viewModel.testPlayScheduledChime(chime) },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x2200E5FF))
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = "試聴", tint = Color(0xFF00E5FF), modifier = Modifier.size(22.dp))
                         }
-                        IconButton(onClick = { editingChime = chime }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Edit, contentDescription = "編集", tint = Color.White, modifier = Modifier.size(18.dp))
+                        IconButton(
+                            onClick = { editingChime = chime },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x18FFFFFF))
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "編集", tint = Color.White, modifier = Modifier.size(20.dp))
                         }
-                        IconButton(onClick = { viewModel.deleteScheduledChime(chime.id) }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                        IconButton(
+                            onClick = { viewModel.deleteScheduledChime(chime.id) },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x22FF5252))
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
                         }
+                        Spacer(modifier = Modifier.width(4.dp))
                         Switch(
                             checked = chime.isEnabled,
                             onCheckedChange = { viewModel.toggleScheduledChime(chime.id) },
@@ -1685,16 +1788,18 @@ private fun ChimesSettingsContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("🎵 カスタム音声ファイル管理", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("端末内またはWebから取り込んだ音声 (${customAudioList.size}件)", fontSize = 11.sp, color = Color(0xFF9E9EA8))
+                        Text("🎵 カスタム音声ファイル管理", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("端末内またはWebから取り込んだ音声 (${customAudioList.size}件)", fontSize = 11.5.sp, color = Color(0xFF9E9EA8))
                     }
                     OutlinedButton(
                         onClick = { audioPickerLauncher.launch("audio/*") },
-                        modifier = Modifier.height(32.dp)
+                        modifier = Modifier.height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF00E5FF))
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF00E5FF))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("音声ファイルを追加", fontSize = 11.sp, color = Color(0xFF00E5FF))
+                        Text("音声ファイルを追加", fontSize = 12.5.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -2119,37 +2224,57 @@ private fun EditScheduledChimeDialog(
                                 .background(Color(0x18FFFFFF))
                                 .padding(12.dp)
                         ) {
-                            Text("時刻設定 (24時間表記)", fontSize = 12.sp, color = Color(0xFFAAAAAA))
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("時刻設定 (24時間表記)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFB0BEC5))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(onClick = { hour = (hour - 1 + 24) % 24 }) { Text("-", color = Color.White) }
+                                    OutlinedButton(
+                                        onClick = { hour = (hour - 1 + 24) % 24 },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.size(width = 54.dp, height = 46.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                    ) { Text("-", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
                                     Text(
                                         text = String.format("%02d", hour),
-                                        fontSize = 28.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 36.sp,
+                                        fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF00E5FF),
                                         fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 12.dp)
+                                        modifier = Modifier.padding(horizontal = 14.dp)
                                     )
-                                    OutlinedButton(onClick = { hour = (hour + 1) % 24 }) { Text("+", color = Color.White) }
+                                    OutlinedButton(
+                                        onClick = { hour = (hour + 1) % 24 },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.size(width = 54.dp, height = 46.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                    ) { Text("+", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
                                 }
-                                Text(" : ", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 8.dp))
+                                Text(" : ", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.padding(horizontal = 10.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedButton(onClick = { minute = (minute - 5 + 60) % 60 }) { Text("-", color = Color.White) }
+                                    OutlinedButton(
+                                        onClick = { minute = (minute - 5 + 60) % 60 },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.size(width = 54.dp, height = 46.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                    ) { Text("-", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
                                     Text(
                                         text = String.format("%02d", minute),
-                                        fontSize = 28.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 36.sp,
+                                        fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF00E5FF),
                                         fontFamily = FontFamily.Monospace,
-                                        modifier = Modifier.padding(horizontal = 12.dp)
+                                        modifier = Modifier.padding(horizontal = 14.dp)
                                     )
-                                    OutlinedButton(onClick = { minute = (minute + 5) % 60 }) { Text("+", color = Color.White) }
+                                    OutlinedButton(
+                                        onClick = { minute = (minute + 5) % 60 },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.size(width = 54.dp, height = 46.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                                    ) { Text("+", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
                                 }
                             }
                         }
@@ -2160,7 +2285,7 @@ private fun EditScheduledChimeDialog(
                         OutlinedTextField(
                             value = label,
                             onValueChange = { label = it },
-                            label = { Text("ラベル (例: 朝礼、お昼休憩、定時)") },
+                            label = { Text("ラベル (例: 朝礼、お昼休憩、定時)", fontSize = 13.sp) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedTextColor = Color.White,
@@ -2176,34 +2301,36 @@ private fun EditScheduledChimeDialog(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(Color(0x18FFFFFF))
-                                .padding(12.dp)
+                                .padding(14.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("繰り返し曜日", fontSize = 12.sp, color = Color(0xFFAAAAAA))
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("繰り返し曜日", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFB0BEC5))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OutlinedButton(
                                         onClick = { daysOfWeek = setOf(1, 2, 3, 4, 5) },
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(34.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                                     ) {
-                                        Text("平日", fontSize = 10.sp, color = Color.White)
+                                        Text("平日", fontSize = 12.sp, color = Color.White)
                                     }
                                     OutlinedButton(
                                         onClick = { daysOfWeek = setOf(1, 2, 3, 4, 5, 6, 7) },
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(4.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(34.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                                     ) {
-                                        Text("毎日", fontSize = 10.sp, color = Color.White)
+                                        Text("毎日", fontSize = 12.sp, color = Color.White)
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -2213,9 +2340,14 @@ private fun EditScheduledChimeDialog(
                                     val isSelected = daysOfWeek.contains(dInt)
                                     Box(
                                         modifier = Modifier
-                                            .size(36.dp)
+                                            .size(44.dp)
                                             .clip(CircleShape)
                                             .background(if (isSelected) Color(0xFF00E5FF) else Color(0x22FFFFFF))
+                                            .border(
+                                                width = if (isSelected) 2.dp else 1.dp,
+                                                color = if (isSelected) Color(0xFF80DEEA) else Color(0x33FFFFFF),
+                                                shape = CircleShape
+                                            )
                                             .clickable {
                                                 daysOfWeek = if (isSelected) daysOfWeek - dInt else daysOfWeek + dInt
                                             },
@@ -2223,7 +2355,7 @@ private fun EditScheduledChimeDialog(
                                     ) {
                                         Text(
                                             text = dLabel,
-                                            fontSize = 12.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isSelected) Color.Black else Color.White
                                         )
@@ -3341,30 +3473,32 @@ private fun MediaManagementSettingsContent(
                                     Text("▶ 端末スピーカーでテスト鳴動中...", color = Color(0xFFFFB300), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                // 1. Primary Music Player Play/Pause Button (User Requested: can now listen as full music player!)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // 1. Primary Music Player Play/Pause Button
                                 if (isPlayingInMusic) {
                                     Button(
                                         onClick = { viewModel.toggleMusicPlayPause() },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(38.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(Icons.Default.Pause, contentDescription = "一時停止", tint = Color.Black, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text("一時停止", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Default.Pause, contentDescription = "一時停止", tint = Color.Black, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("一時停止", fontSize = 12.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                                     }
                                 } else {
                                     Button(
                                         onClick = { viewModel.playMusic(audio, customAudioList) },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
                                         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(38.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = "音楽再生", tint = Color(0xFF00E5FF), modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text("音楽再生", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "音楽再生", tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("音楽再生", fontSize = 12.5.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                                     }
                                 }
 
@@ -3373,20 +3507,22 @@ private fun MediaManagementSettingsContent(
                                     Button(
                                         onClick = { viewModel.stopAudioPlayback() },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(38.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(Icons.Default.Stop, contentDescription = "停止", tint = Color.White, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text("停止", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Default.Stop, contentDescription = "停止", tint = Color.White, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("停止", fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
                                     }
                                 } else {
                                     OutlinedButton(
                                         onClick = { viewModel.testPlayCustomAudio(audio.filePath) },
-                                        modifier = Modifier.height(28.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(38.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                     ) {
-                                        Text("テスト鳴動", fontSize = 10.sp, color = Color(0xFFB0B0C0))
+                                        Text("テスト鳴動", fontSize = 12.sp, color = Color(0xFFB0B0C0))
                                     }
                                 }
 
@@ -3396,15 +3532,16 @@ private fun MediaManagementSettingsContent(
                                         renamingAudioItem = audio
                                         renameText = audio.name
                                     },
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(38.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
-                                    Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(13.dp))
+                                    Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(16.dp))
                                 }
 
                                 // Delete
-                                IconButton(onClick = { viewModel.deleteCustomAudio(audio) }, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                IconButton(onClick = { viewModel.deleteCustomAudio(audio) }, modifier = Modifier.size(38.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -3554,61 +3691,49 @@ private fun MediaManagementSettingsContent(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(video.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 // Rename Button
                                 OutlinedButton(
                                     onClick = {
                                         renamingVideoItem = video
                                         renameText = video.name
                                     },
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(38.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
-                                    Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("改名", fontSize = 10.sp, color = Color(0xFFCCCCCC))
+                                    Icon(Icons.Default.Edit, contentDescription = "名前変更", tint = Color(0xFFCCCCCC), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("改名", fontSize = 12.sp, color = Color(0xFFCCCCCC))
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
 
                                 // Play in Background (時計の背景で再生)
                                 Button(
                                     onClick = { viewModel.testPlayCustomVideo(video, withAudio = true, displayLayer = VideoDisplayLayer.BACKGROUND) },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF0055)),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF4081)),
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(38.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("背景再生", fontSize = 10.sp, color = Color(0xFFFF4081), fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("背景再生", fontSize = 12.sp, color = Color(0xFFFF4081), fontWeight = FontWeight.Bold)
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
 
                                 // Play in Foreground (時計の前面で再生)
                                 Button(
                                     onClick = { viewModel.testPlayCustomVideo(video, withAudio = true, displayLayer = VideoDisplayLayer.FOREGROUND) },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(38.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
-                                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("前面再生", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.Videocam, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("前面再生", fontSize = 12.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
-
-                                // Audio only
-                                OutlinedButton(
-                                    onClick = { viewModel.testPlayCustomAudio(video.filePath) },
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 5.dp, vertical = 2.dp)
-                                ) {
-                                    Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(12.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("音声", fontSize = 10.sp, color = Color(0xFF81C784))
-                                }
-                                Spacer(modifier = Modifier.width(4.dp))
 
                                 // Stop Button
                                 OutlinedButton(
@@ -3616,17 +3741,17 @@ private fun MediaManagementSettingsContent(
                                         viewModel.dismissBackgroundVideo()
                                         viewModel.stopAudioPlayback()
                                     },
-                                    modifier = Modifier.height(28.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 5.dp, vertical = 2.dp)
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(38.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                 ) {
-                                    Icon(Icons.Default.Stop, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(12.dp))
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text("停止", fontSize = 10.sp, color = Color(0xFFFF5252))
+                                    Icon(Icons.Default.Stop, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("停止", fontSize = 12.sp, color = Color(0xFFFF5252))
                                 }
-                                Spacer(modifier = Modifier.width(2.dp))
 
-                                IconButton(onClick = { viewModel.deleteCustomVideo(video) }, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                                IconButton(onClick = { viewModel.deleteCustomVideo(video) }, modifier = Modifier.size(38.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "削除", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -3841,12 +3966,22 @@ private fun WeatherSettingsContent(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                    enabled = !isDetectingLocation
+                    enabled = !isDetectingLocation,
+                    modifier = Modifier.height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (isDetectingLocation) "GPS測位中..." else "GPS現在地取得",
                         color = Color.Black,
-                        fontSize = 12.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -3856,25 +3991,26 @@ private fun WeatherSettingsContent(
         // Quick City Select Chips
         item {
             Column {
-                Text("主要都市から選択", fontSize = 12.sp, color = Color(0xFF888896))
+                Text("主要都市から選択", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF888896))
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(popularCities) { city ->
                         val isSelected = preferences.selectedCityName.contains(city)
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) Color(0xFF00E5FF) else Color(0x1EFFFFFF))
+                                .border(1.dp, if (isSelected) Color(0xFF00E5FF) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
                                 .clickable {
                                     viewModel.searchMunicipalities(city)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Text(
                                 text = city,
                                 color = if (isSelected) Color.Black else Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                fontSize = 13.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
                         }
                     }
@@ -4088,21 +4224,27 @@ private fun NightStandSettingsContent(
                         Button(
                             onClick = { viewModel.toggleKioskLock() },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF33333E)),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("施錠を解除する", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.LockOpen, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("施錠を解除する", color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Button(
                             onClick = { viewModel.toggleKioskLock() },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("今すぐ施錠する (アプリ固定)", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("今すぐ施錠する (アプリ固定)", color = Color.Black, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -4187,9 +4329,12 @@ private fun NightStandSettingsContent(
                             }
                         }
                     },
+                    modifier = Modifier.height(42.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0x2200E5FF))
                 ) {
-                    Text("設定を開く", fontSize = 11.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                    Text("設定を開く", fontSize = 13.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -4224,24 +4369,42 @@ private fun SettingToggleCard(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0x18FFFFFF))
-            .padding(14.dp),
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (checked) Color(0x2800E5FF) else Color(0x18FFFFFF))
+            .border(
+                1.5.dp,
+                if (checked) Color(0xFF00E5FF) else Color(0x25FFFFFF),
+                RoundedCornerShape(16.dp)
+            )
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = subtitle, fontSize = 10.sp, color = Color(0xFF8E8E9A))
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (checked) Color(0xFF00E5FF) else Color.White
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = if (checked) Color(0xFFD4F8FE) else Color(0xFFB0B0C0),
+                lineHeight = 16.sp
+            )
         }
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color(0xFF00E5FF),
-                checkedTrackColor = Color(0x4D00E5FF)
+                checkedTrackColor = Color(0x6600E5FF),
+                uncheckedThumbColor = Color(0xFFCBD5E1),
+                uncheckedTrackColor = Color(0xFF334155)
             )
         )
     }
@@ -4425,21 +4588,23 @@ private fun DiagnosticsSettingsContent(
                                 Toast.makeText(context, "Web更新URLをコピーしました", Toast.LENGTH_SHORT).show()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0x3338BDF8)),
-                            shape = RoundedCornerShape(8.dp)
+                            modifier = Modifier.height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "URLコピー",
                                 tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("URLコピー", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("URLコピー", fontSize = 12.5.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // On-device direct update buttons
                 Row(
@@ -4450,29 +4615,42 @@ private fun DiagnosticsSettingsContent(
                         onClick = {
                             apkPickerLauncher.launch("application/vnd.android.package-archive")
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
-                        Text("端末内APKから直接更新", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("端末内APKから直接更新", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
 
                     Button(
                         onClick = {
                             espBinPickerLauncher.launch("*/*")
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Bluetooth,
                             contentDescription = null,
-                            modifier = Modifier.size(15.dp),
+                            modifier = Modifier.size(18.dp),
                             tint = Color.White
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("ESP32 .bin更新 (BLE/OTA)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("ESP32 .bin更新 (BLE/OTA)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
 
@@ -4737,12 +4915,15 @@ private fun DiagnosticsSettingsContent(
                 Button(
                     onClick = { refreshData() },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "ログ更新", fontSize = 12.sp)
+                    Text(text = "ログ更新", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 Button(
@@ -4753,12 +4934,15 @@ private fun DiagnosticsSettingsContent(
                         android.widget.Toast.makeText(context, "全ログをクリップボードにコピーしました", android.widget.Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1.2f)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1.2f)
+                        .height(44.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "ログを全コピー", fontSize = 12.sp)
+                    Text(text = "全コピー", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 Button(
@@ -4768,23 +4952,29 @@ private fun DiagnosticsSettingsContent(
                         android.widget.Toast.makeText(context, "ログを消去しました", android.widget.Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "ログ消去", fontSize = 12.sp)
+                    Text(text = "ログ消去", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 Button(
                     onClick = { showTestCrashDialog = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0x33EF4444)),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1.4f)
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1.4f)
+                        .height(44.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    Icon(imageVector = Icons.Default.BugReport, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                    Icon(imageVector = Icons.Default.BugReport, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "復帰テスト", fontSize = 12.sp, color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
+                    Text(text = "復帰テスト", fontSize = 13.sp, color = Color(0xFFEF4444), fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -5030,16 +5220,18 @@ private fun EewSettingsContent(
 
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(Color(0x333B82F6))
-                            .border(1.dp, Color(0x663B82F6), RoundedCornerShape(20.dp))
+                            .border(1.2.dp, Color(0xFF3B82F6), RoundedCornerShape(12.dp))
                             .clickable { onLaunchLiveMap() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "🗺️ マップを開く",
                             color = Color(0xFF60A5FA),
-                            fontSize = 12.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -5117,14 +5309,14 @@ private fun EewSettingsContent(
                 }
 
                 if (preferences.eewSoundEnabled) {
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = "警報サウンドの種類:",
                         color = Color.White,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -5139,25 +5331,25 @@ private fun EewSettingsContent(
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(12.dp))
                                     .background(if (isSelected) Color(0x3322C55E) else Color(0x22FFFFFF))
-                                    .border(1.5.dp, if (isSelected) Color(0xFF22C55E) else Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                                    .border(1.5.dp, if (isSelected) Color(0xFF22C55E) else Color(0x33FFFFFF), RoundedCornerShape(12.dp))
                                     .clickable { viewModel.updateEewPreferences(soundMode = mode) }
-                                    .padding(8.dp)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
                             ) {
                                 Column {
                                     Text(
                                         text = title,
                                         color = if (isSelected) Color(0xFF4ADE80) else Color.White,
-                                        fontSize = 11.sp,
+                                        fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = desc,
-                                        color = Color(0xFF8E8E9A),
-                                        fontSize = 10.sp,
-                                        lineHeight = 12.sp
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp
                                     )
                                 }
                             }
@@ -5171,10 +5363,10 @@ private fun EewSettingsContent(
                 Text(
                     text = "マップ描画方式:",
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -5184,25 +5376,25 @@ private fun EewSettingsContent(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (isLight) Color(0x3338BDF8) else Color(0x22FFFFFF))
-                            .border(1.5.dp, if (isLight) Color(0xFF38BDF8) else Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                            .border(1.5.dp, if (isLight) Color(0xFF38BDF8) else Color(0x33FFFFFF), RoundedCornerShape(12.dp))
                             .clickable { viewModel.updateEewPreferences(lightweightMap = true) }
-                            .padding(8.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Column {
                             Text(
                                 text = "⚡ 超軽量レーダー (推奨)",
                                 color = if (isLight) Color(0xFF38BDF8) else Color.White,
-                                fontSize = 11.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "通信ゼロ・DOMゼロ・60fps。タブレットでも一切カクつかず滑らかに動きます",
-                                color = Color(0xFF8E8E9A),
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
                             )
                         }
                     }
@@ -5210,25 +5402,25 @@ private fun EewSettingsContent(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (!isLight) Color(0x3338BDF8) else Color(0x22FFFFFF))
-                            .border(1.5.dp, if (!isLight) Color(0xFF38BDF8) else Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                            .border(1.5.dp, if (!isLight) Color(0xFF38BDF8) else Color(0x33FFFFFF), RoundedCornerShape(12.dp))
                             .clickable { viewModel.updateEewPreferences(lightweightMap = false) }
-                            .padding(8.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Column {
                             Text(
                                 text = "🗺️ 詳細Web地図",
                                 color = if (!isLight) Color(0xFF38BDF8) else Color.White,
-                                fontSize = 11.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "オンライン地図タイルを用いた標準表示（高性能端末向け）",
-                                color = Color(0xFF8E8E9A),
-                                fontSize = 10.sp,
-                                lineHeight = 12.sp
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
                             )
                         }
                     }
@@ -5262,7 +5454,7 @@ private fun EewSettingsContent(
                 Text(
                     text = "全画面マップ起動の最小震度閾値:",
                     color = Color.White,
-                    fontSize = 13.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -5275,19 +5467,19 @@ private fun EewSettingsContent(
                         val isSelected = preferences.eewMinScale == scale.scaleValue
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSelected) Color(0xFFEF4444) else Color(0x22FFFFFF))
-                                .border(1.dp, if (isSelected) Color(0xFFFF8A80) else Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                                .border(1.2.dp, if (isSelected) Color(0xFFFF8A80) else Color(0x33FFFFFF), RoundedCornerShape(10.dp))
                                 .clickable {
                                     viewModel.updateEewPreferences(minScale = scale.scaleValue)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Text(
                                 text = "${scale.label}${if (scale == EewScaleLevel.SCALE_5_LOWER) " (標準)" else ""}",
                                 color = if (isSelected) Color.White else Color(0xFFCCCCCC),
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                fontSize = 13.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                             )
                         }
                     }
@@ -5473,11 +5665,13 @@ private fun VoiceAssistantSettingsContent(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
-                    modifier = Modifier.height(36.dp)
+                    modifier = Modifier.height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("話しかける", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("話しかける", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -5545,7 +5739,7 @@ private fun VoiceAssistantSettingsContent(
 
                     if (preferences.wakeWordListeningEnabled) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("起動フレーズ（ウェイクワード）の選択:", fontSize = 11.sp, color = Color(0xFFAAAAAA), fontWeight = FontWeight.Medium)
+                        Text("起動フレーズ（ウェイクワード）の選択:", fontSize = 12.sp, color = Color(0xFFAAAAAA), fontWeight = FontWeight.Medium)
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Row(
@@ -5565,19 +5759,20 @@ private fun VoiceAssistantSettingsContent(
                                         containerColor = if (isSelected) Color(0x334285F4) else Color.Transparent
                                     ),
                                     border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
+                                        1.2.dp,
                                         if (isSelected) Color(0xFF4285F4) else Color(0x33FFFFFF)
                                     ),
+                                    shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(32.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                                        .height(42.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 4.dp)
                                 ) {
                                     Text(
                                         text = label,
-                                        fontSize = 10.sp,
-                                        color = if (isSelected) Color.White else Color(0xFFCCCCCC),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        fontSize = 12.sp,
+                                        color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     )
                                 }
                             }
@@ -5593,7 +5788,7 @@ private fun VoiceAssistantSettingsContent(
                                 OutlinedTextField(
                                     value = customKeywordText,
                                     onValueChange = { customKeywordText = it },
-                                    label = { Text("カスタムキーワード (例: おはよう, クロック)", fontSize = 10.sp) },
+                                    label = { Text("カスタムキーワード (例: おはよう, クロック)", fontSize = 11.sp) },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                     colors = OutlinedTextFieldDefaults.colors(
@@ -5608,9 +5803,10 @@ private fun VoiceAssistantSettingsContent(
                                         viewModel.updateCustomWakeWord(customKeywordText.trim())
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4)),
+                                    shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.height(48.dp)
                                 ) {
-                                    Text("保存", fontSize = 11.sp)
+                                    Text("保存", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -5786,58 +5982,58 @@ private fun EqualizerSettingsContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF0F131D))
-                    .border(1.dp, if (eqState.isEnabled) Color(0x6600E5FF) else Color(0x22FFFFFF), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .border(1.2.dp, if (eqState.isEnabled) Color(0x6600E5FF) else Color(0x25FFFFFF), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Surface(
                         shape = CircleShape,
                         color = if (eqState.isEnabled) Color(0x3300E5FF) else Color(0x22FFFFFF),
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(42.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.GraphicEq,
                                 contentDescription = null,
                                 tint = if (eqState.isEnabled) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("イコライザー有効", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("イコライザー有効", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             if (musicState.isPlaying) {
                                 SettingsVisualizerBars(isPlaying = true, accentColor = Color(0xFF00E5FF))
                             }
                         }
                         Text(
                             text = if (eqState.isEnabled) "現在: ${eqState.currentPreset.displayName}" else "OFF (無加工スルー再生)",
-                            fontSize = 10.5.sp,
+                            fontSize = 12.5.sp,
                             color = if (eqState.isEnabled) Color(0xFF38BDF8) else Color(0xFF94A3B8)
                         )
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = { viewModel.resetEqualizerToFlat() },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF)),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                        modifier = Modifier.height(28.dp),
-                        shape = RoundedCornerShape(6.dp)
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        modifier = Modifier.height(40.dp),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("リセット", fontSize = 10.5.sp, color = Color.White)
+                        Text("リセット", fontSize = 12.5.sp, color = Color.White, fontWeight = FontWeight.Bold)
                     }
                     Switch(
                         checked = eqState.isEnabled,
                         onCheckedChange = { viewModel.setEqualizerEnabled(it) },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF00E5FF)
+                            checkedThumbColor = Color(0xFF00E5FF),
+                            checkedTrackColor = Color(0x6600E5FF)
                         )
                     )
                 }
@@ -5849,15 +6045,15 @@ private fun EqualizerSettingsContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF0F131D))
-                    .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(12.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .border(1.2.dp, Color(0x3300E5FF), RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
                     text = "🔊 サウンドエフェクト・強化バー",
-                    fontSize = 12.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF00E5FF)
                 )
@@ -5869,13 +6065,13 @@ private fun EqualizerSettingsContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("💥 低音ブースト (Bass Boost):", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                            Text("迫力ある重低音を強化", fontSize = 9.5.sp, color = Color(0xFF888888))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("💥 低音ブースト (Bass Boost):", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("迫力ある重低音を強化", fontSize = 11.5.sp, color = Color(0xFF94A3B8))
                         }
                         Text(
                             text = "${eqState.bassBoostStrength / 10}%",
-                            fontSize = 11.5.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
                             color = if (eqState.bassBoostStrength > 0) Color(0xFF00E5FF) else Color(0xFF888888)
@@ -5892,7 +6088,7 @@ private fun EqualizerSettingsContent(
                             activeTrackColor = Color(0xFF00E5FF),
                             inactiveTrackColor = Color(0x33FFFFFF)
                         ),
-                        modifier = Modifier.height(26.dp)
+                        modifier = Modifier.height(36.dp)
                     )
                 }
 
@@ -5903,13 +6099,13 @@ private fun EqualizerSettingsContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("🎧 立体音響・サラウンド (Virtualizer):", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
-                            Text("空間的な広がりを演出", fontSize = 9.5.sp, color = Color(0xFF888888))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("🎧 立体音響・サラウンド (Virtualizer):", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text("空間的な広がりを演出", fontSize = 11.5.sp, color = Color(0xFF94A3B8))
                         }
                         Text(
                             text = "${eqState.virtualizerStrength / 10}%",
-                            fontSize = 11.5.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
                             color = if (eqState.virtualizerStrength > 0) Color(0xFF38BDF8) else Color(0xFF888888)
@@ -5926,7 +6122,7 @@ private fun EqualizerSettingsContent(
                             activeTrackColor = Color(0xFF38BDF8),
                             inactiveTrackColor = Color(0x33FFFFFF)
                         ),
-                        modifier = Modifier.height(26.dp)
+                        modifier = Modifier.height(36.dp)
                     )
                 }
             }
@@ -5937,41 +6133,43 @@ private fun EqualizerSettingsContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF0F131D))
-                    .border(1.dp, if (preferences.antiNoiseSilenceEnabled) Color(0x6600E5FF) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .border(1.dp, if (preferences.antiNoiseSilenceEnabled) Color(0x6600E5FF) else Color(0x22FFFFFF), RoundedCornerShape(16.dp))
+                    .clickable { viewModel.setAntiNoiseSilenceEnabled(!preferences.antiNoiseSilenceEnabled) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
                         imageVector = Icons.Default.VolumeMute,
                         contentDescription = null,
                         tint = if (preferences.antiNoiseSilenceEnabled) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("イヤホン・ノイズ防止（常時無音再生）", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("イヤホン・ノイズ防止（常時無音再生）", fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             if (isSilencePlaying) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(RoundedCornerShape(6.dp))
                                         .background(Color(0xFF00E5FF))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
-                                    Text("出力中", fontSize = 9.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                    Text("出力中", fontSize = 10.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             "端子の待機ジー音や再生開始時のプチッ音を防止",
-                            fontSize = 9.5.sp,
+                            fontSize = 11.5.sp,
                             color = Color(0xFF94A3B8)
                         )
                     }
@@ -5980,8 +6178,8 @@ private fun EqualizerSettingsContent(
                     checked = preferences.antiNoiseSilenceEnabled,
                     onCheckedChange = { viewModel.setAntiNoiseSilenceEnabled(it) },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFF00E5FF)
+                        checkedThumbColor = Color(0xFF00E5FF),
+                        checkedTrackColor = Color(0x6600E5FF)
                     )
                 )
             }
@@ -5992,36 +6190,39 @@ private fun EqualizerSettingsContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(Color(0xFF0F131D))
-                    .border(1.dp, Color(0x33FA541C), RoundedCornerShape(10.dp))
-                    .padding(10.dp)
+                    .border(1.dp, Color(0x33FA541C), RoundedCornerShape(16.dp))
+                    .padding(14.dp)
             ) {
                 Text(
                     text = "🛡️ 低音カット・スピーカー保護フィルター",
-                    fontSize = 11.5.sp,
+                    fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFFA541C)
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "小型スピーカーの低音歪み・音割れ・ビビリを強力にカット",
-                    fontSize = 9.5.sp,
+                    fontSize = 11.5.sp,
                     color = Color(0xFF94A3B8)
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     BassCutMode.values().forEach { mode ->
                         val isSel = eqState.bassCutMode == mode
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(if (isSel) Color(0xFFFA541C) else Color(0x14FFFFFF))
+                                .border(1.2.dp, if (isSel) Color(0xFFFF8A65) else Color.Transparent, RoundedCornerShape(12.dp))
                                 .clickable { viewModel.setEqualizerBassCutMode(mode) }
-                                .padding(vertical = 5.dp),
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -6032,8 +6233,8 @@ private fun EqualizerSettingsContent(
                                     BassCutMode.STRONG -> "強(-12dB)"
                                     BassCutMode.EXTREME -> "極(-16dB)"
                                 },
-                                fontSize = 9.5.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
                                 color = if (isSel) Color.White else Color(0xFFCCCCCC)
                             )
                         }
@@ -6044,8 +6245,8 @@ private fun EqualizerSettingsContent(
 
         // 4. Presets
         item {
-            Text("プリセット選択:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
-            Spacer(modifier = Modifier.height(4.dp))
+            Text("プリセット選択:", fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFCBD5E1))
+            Spacer(modifier = Modifier.height(8.dp))
             val presets = listOf(
                 EqualizerPreset.FLAT,
                 EqualizerPreset.BASS_BOOST,
@@ -6060,32 +6261,33 @@ private fun EqualizerSettingsContent(
                 EqualizerPreset.BASS_REDUCE,
                 EqualizerPreset.BASS_CUT_LIGHT
             )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 presets.chunked(3).forEach { rowPresets ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowPresets.forEach { p ->
                             val isSel = eqState.currentPreset == p
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) Color(0x3300E5FF) else Color(0x12FFFFFF))
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSel) Color(0x3300E5FF) else Color(0x14FFFFFF))
                                     .border(
-                                        1.dp,
-                                        if (isSel) Color(0xFF00E5FF) else Color.Transparent,
-                                        RoundedCornerShape(6.dp)
+                                        1.5.dp,
+                                        if (isSel) Color(0xFF00E5FF) else Color(0x22FFFFFF),
+                                        RoundedCornerShape(12.dp)
                                     )
                                     .clickable { viewModel.setEqualizerPreset(p) }
-                                    .padding(horizontal = 4.dp, vertical = 6.dp),
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = p.displayName.split(" ")[0],
-                                    fontSize = 9.5.sp,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.SemiBold,
                                     color = if (isSel) Color(0xFF00E5FF) else Color.White,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -6109,12 +6311,12 @@ private fun EqualizerSettingsContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("5バンド手動調整 (-15dB 〜 +15dB):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+                Text("5バンド手動調整 (-15dB 〜 +15dB):", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFCBD5E1))
                 Text(
                     text = if (eqState.currentPreset == EqualizerPreset.CUSTOM) "カスタム" else eqState.currentPreset.displayName.split(" ")[0],
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     color = Color(0xFF00E5FF),
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -6125,20 +6327,21 @@ private fun EqualizerSettingsContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF0F131D))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(label, fontSize = 10.5.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text(label, fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
                     Text(
                         text = "${if (gain > 0) "+$gain" else "$gain"} dB ${if (effGain != gain) "(実効: ${effGain}dB)" else ""}",
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
                         color = if (gain > 0) Color(0xFF00E5FF) else if (gain < 0) Color(0xFFFA541C) else Color(0xFF94A3B8)
                     )
                 }
@@ -6156,7 +6359,7 @@ private fun EqualizerSettingsContent(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(26.dp)
+                        .height(34.dp)
                 )
             }
         }
@@ -6164,7 +6367,7 @@ private fun EqualizerSettingsContent(
         // 6. Test Audio Player (Listen to EQ effect live)
         item {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(14.dp),
                 color = Color(0xFF0F131D),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x22FFFFFF)),
                 modifier = Modifier.fillMaxWidth()
@@ -6172,27 +6375,28 @@ private fun EqualizerSettingsContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(10.dp),
+                        .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("🎧 イコライザー効果の試聴・テスト:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        Text("再生しながらリアルタイムにイコライザーや低音を調整できます", fontSize = 9.5.sp, color = Color(0xFF888888))
+                        Text("🎧 イコライザー効果の試聴・テスト:", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text("再生しながらリアルタイムにイコライザーや低音を調整できます", fontSize = 11.5.sp, color = Color(0xFF94A3B8))
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = { viewModel.testChimeSound(ChimeSound.WESTMINSTER, preferences.chimeVolume) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0x3300E5FF)),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E5FF)),
-                            modifier = Modifier.height(28.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            shape = RoundedCornerShape(6.dp)
+                            modifier = Modifier.height(42.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("時報テスト", fontSize = 9.5.sp, color = Color(0xFF00E5FF))
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("時報テスト", fontSize = 12.5.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
                         }
 
                         if (musicState.isPlaying) {
@@ -6200,13 +6404,13 @@ private fun EqualizerSettingsContent(
                                 onClick = { viewModel.pauseMusic() },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0x33FF0055)),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF0055)),
-                                modifier = Modifier.height(28.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                shape = RoundedCornerShape(6.dp)
+                                modifier = Modifier.height(42.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("音楽停止", fontSize = 9.5.sp, color = Color(0xFFFF4081))
+                                Icon(Icons.Default.Pause, contentDescription = null, tint = Color(0xFFFF4081), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("音楽停止", fontSize = 12.5.sp, color = Color(0xFFFF4081), fontWeight = FontWeight.Bold)
                             }
                         } else {
                             Button(
@@ -6219,13 +6423,13 @@ private fun EqualizerSettingsContent(
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF34A853)),
-                                modifier = Modifier.height(28.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                shape = RoundedCornerShape(6.dp)
+                                modifier = Modifier.height(42.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text("音楽再生", fontSize = 9.5.sp, color = Color.White)
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("音楽再生", fontSize = 12.5.sp, color = Color.White, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

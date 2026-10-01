@@ -52,6 +52,7 @@ class EspSensorManager(private val context: Context) {
     var onPhysicalButtonEvent: ((btnId: Int, btnName: String) -> Unit)? = null
     var onFireAlertEvent: ((detected: Boolean, mq2Raw: Int?, message: String?) -> Unit)? = null
     var onMq2TelemetryEvent: ((rawVal: Int?, voltage: Float?, smoke: Boolean) -> Unit)? = null
+    var onBleAddressConnected: ((address: String) -> Unit)? = null
 
     val bleSensorManager: BleSensorManager = BleSensorManager(
         context = context,
@@ -112,6 +113,9 @@ class EspSensorManager(private val context: Context) {
                 pcfNtcReady = ready
             )
         }
+        onDeviceAddressConnected = { address ->
+            onBleAddressConnected?.invoke(address)
+        }
     }
 
     val usbSensorManager: UsbSensorManager = UsbSensorManager(
@@ -156,6 +160,7 @@ class EspSensorManager(private val context: Context) {
         enabled: Boolean,
         mode: String = "BLE",
         targetBleName: String = "ESP32C3-Sensor",
+        targetBleAddress: String? = null,
         baud: Int = 115200,
         newHost: String = "192.168.1.100",
         newPort: Int = 80,
@@ -180,7 +185,15 @@ class EspSensorManager(private val context: Context) {
         humOffset = newHumOffset
         pressOffset = newPressOffset
 
-        if (modeChanged || enabledChanged || bleNameChanged || baudChanged) {
+        if (!targetBleAddress.isNullOrBlank()) {
+            bleSensorManager.savedDeviceAddress = targetBleAddress
+        }
+
+        // すでにBLE接続中の場合は不必要な切断・再起動を回避
+        val alreadyConnectedToTarget = (mode == "BLE" && bleSensorManager.isConnected &&
+                (targetBleAddress == null || bleSensorManager.connectedDeviceAddress == targetBleAddress))
+
+        if ((modeChanged || enabledChanged || bleNameChanged || baudChanged) && !alreadyConnectedToTarget) {
             start()
         }
     }

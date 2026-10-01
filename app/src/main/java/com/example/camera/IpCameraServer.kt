@@ -1,6 +1,7 @@
 package com.example.camera
 
 import android.content.Context
+import android.util.Base64
 import android.util.Log
 import com.example.audio.ChimeSound
 import com.example.data.CrashLogManager
@@ -29,6 +30,8 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
 import java.net.URLDecoder
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -106,6 +109,8 @@ class IpCameraServer(
     private val onStopMusic: () -> Unit = { com.example.audio.MusicPlayerManager.stop() },
     private val onSetMusicVolume: (Float) -> Unit = { com.example.audio.MusicPlayerManager.setVolume(it) },
     private val onSeekMusic: (Long) -> Unit = { com.example.audio.MusicPlayerManager.seekTo(it) },
+    private val onSeekMusicRelative: (Long) -> Unit = { com.example.audio.MusicPlayerManager.seekRelative(it) },
+    private val onSetMusicSpeed: (Float) -> Unit = { com.example.audio.MusicPlayerManager.setPlaybackSpeed(it) },
     private val onSetMusicRepeatMode: (com.example.audio.MusicRepeatMode) -> Unit = { com.example.audio.MusicPlayerManager.setRepeatMode(it) },
     private val onVoiceCommand: (String) -> Unit = {},
     private val equalizerStateProvider: () -> com.example.model.EqualizerState = { com.example.audio.AudioEqualizerManager.equalizerState.value },
@@ -243,18 +248,203 @@ class IpCameraServer(
         }
 
         fun sendPong(payload: ByteArray) {
-            synchronized(out) {
-                out.write(0x8A) // FIN=1, opcode=10 (pong)
-                val len = payload.size.coerceAtMost(125)
-                out.write(len)
-                if (len > 0) out.write(payload, 0, len)
-                out.flush()
-            }
+            try {
+                synchronized(out) {
+                    out.write(0x8A) // FIN=1, opcode=10 (pong)
+                    val len = payload.size.coerceAtMost(125)
+                    out.write(len)
+                    if (len > 0) out.write(payload, 0, len)
+                    out.flush()
+                }
+            } catch (_: Exception) {}
+        }
+
+        fun sendClose() {
+            try {
+                synchronized(out) {
+                    out.write(0x88) // FIN=1, opcode=8 (close)
+                    out.write(0)
+                    out.flush()
+                }
+            } catch (_: Exception) {}
         }
     }
 
     private val webSocketSessions = CopyOnWriteArrayList<WebSocketSession>()
     private var lastBroadcastMs = 0L
+
+    private fun computeWebSocketAccept(key: String): String {
+        val guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+        val md = MessageDigest.getInstance("SHA-1")
+        val hash = md.digest((key.trim() + guid).toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(hash, Base64.NO_WRAP)
+    }
+
+    private fun handleWebSocketSession(socket: Socket, inStream: InputStream, outStream: OutputStream, clientKey: String) {
+        try {
+            val acceptKey = computeWebSocketAccept(clientKey)
+            val handshakeResponse = ("HTTP/1.1 101 Switching Protocols\r\n" +
+                    "Upgrade: websocket\r\n" +
+                    "Connection: Upgrade\r\n" +
+                    "Sec-WebSocket-Accept: $acceptKey\r\n\r\n").toByteArray(Charsets.UTF_8)
+            outStream.write(handshakeResponse)
+            outStream.flush()
+
+            val session = WebSocketSession(socket, outStream)
+            webSocketSessions.add(session)
+
+            // Push immediate snapshot of full device state upon connection
+            try {
+                session.sendText(buildStatusJson())
+            } catch (_: Exception) {}
+
+            while (isRunning.get() && !socket.isClosed) {
+                val b0 = inStream.read()
+                if (b0 == -1) break
+                val b1 = inStream.read()
+                if (b1 == -1) break
+
+                val opcode = b0 and 0x0F
+                val isMasked = (b1 and 0x80) != 0
+                var payloadLength = (b1 and 0x7F).toLong()
+
+                if (payloadLength == 126L) {
+                    val b2 = inStream.read()
+                    val b3 = inStream.read()
+                    if (b2 == -1 || b3 == -1) break
+                    payloadLength = (((b2 and 0xFF) shl 8) or (b3 and 0xFF)).toLong()
+                } else if (payloadLength == 127L) {
+                    val lenBytes = ByteArray(8)
+                    var readLen = 0
+                    while (readLen < 8) {
+                        val r = inStream.read(lenBytes, readLen, 8 - readLen)
+                        if (r == -1) break
+                        readLen += r
+                    }
+                    if (readLen != 8) break
+                    payloadLength = ByteBuffer.wrap(lenBytes).long
+                }
+
+                if (payloadLength < 0 || payloadLength > 10 * 1024 * 1024) {
+                    break // Sanity limit for WebSocket frame
+                }
+
+                val maskingKey = ByteArray(4)
+                if (isMasked) {
+                    var readM = 0
+                    while (readM < 4) {
+                        val r = inStream.read(maskingKey, readM, 4 - readM)
+                        if (r == -1) break
+                        readM += r
+                    }
+                }
+
+                val payload = ByteArray(payloadLength.toInt())
+                var totalRead = 0
+                while (totalRead < payload.size) {
+                    val r = inStream.read(payload, totalRead, payload.size - totalRead)
+                    if (r == -1) break
+                    totalRead += r
+                }
+
+                if (isMasked) {
+                    for (i in payload.indices) {
+                        payload[i] = (payload[i].toInt() xor maskingKey[i % 4].toInt()).toByte()
+                    }
+                }
+
+                when (opcode) {
+                    0x8 -> { // Close Frame
+                        session.sendClose()
+                        break
+                    }
+                    0x9 -> { // Ping Frame
+                        session.sendPong(payload)
+                    }
+                    0x1 -> { // Text Message Frame
+                        val msgText = String(payload, Charsets.UTF_8)
+                        handleIncomingWebSocketMessage(msgText, session)
+                    }
+                }
+            }
+            webSocketSessions.remove(session)
+            try { socket.close() } catch (_: Exception) {}
+        } catch (e: Exception) {
+            try { socket.close() } catch (_: Exception) {}
+        }
+    }
+
+    private fun handleIncomingWebSocketMessage(text: String, session: WebSocketSession) {
+        try {
+            val obj = JSONObject(text)
+            val action = obj.optString("action")
+            when (action) {
+                "get_status", "refresh" -> {
+                    session.sendText(buildStatusJson())
+                }
+                "music_toggle", "toggle_music" -> {
+                    onToggleMusic()
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_play" -> {
+                    val id = obj.optString("id")
+                    val filePath = obj.optString("filePath")
+                    val track = customAudioProvider().find { it.id == id || it.filePath == filePath }
+                    if (track != null) {
+                        onPlayMusic(track)
+                    } else if (filePath.isNotEmpty()) {
+                        val fileName = filePath.substringAfterLast("/").substringAfterLast("\\")
+                        onPlayMusic(CustomAudioItem(id = id.ifBlank { "custom_${System.currentTimeMillis()}" }, name = fileName, filePath = filePath))
+                    }
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_stop" -> {
+                    onStopMusic()
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_next" -> {
+                    onNextMusic()
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_prev" -> {
+                    onPrevMusic()
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_seek" -> {
+                    val pos = obj.optLong("positionMs", obj.optLong("pos", 0L))
+                    onSeekMusic(pos)
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_seek_relative" -> {
+                    val offset = obj.optLong("offsetMs", 0L)
+                    onSeekMusicRelative(offset)
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_speed" -> {
+                    val speed = obj.optDouble("speed", 1.0).toFloat()
+                    onSetMusicSpeed(speed)
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_volume" -> {
+                    val vol = obj.optDouble("volume", 0.85).toFloat()
+                    onSetMusicVolume(vol)
+                    broadcastMusicPlayerUpdate()
+                }
+                "music_repeat" -> {
+                    val modeStr = obj.optString("repeatMode", "ALL")
+                    val mode = try { com.example.audio.MusicRepeatMode.valueOf(modeStr) } catch (_: Exception) { com.example.audio.MusicRepeatMode.ALL }
+                    onSetMusicRepeatMode(mode)
+                    broadcastMusicPlayerUpdate()
+                }
+                "ir_send" -> {
+                    val btnId = obj.optString("id")
+                    if (btnId.isNotEmpty()) {
+                        handleSendIr("{\"id\":\"$btnId\"}")
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
 
     fun broadcastWebSocketText(text: String) {
         if (webSocketSessions.isEmpty()) return
@@ -274,7 +464,7 @@ class IpCameraServer(
     fun broadcastMusicPlayerUpdate() {
         if (webSocketSessions.isEmpty()) return
         val now = System.currentTimeMillis()
-        if (now - lastBroadcastMs < 200) return
+        if (now - lastBroadcastMs < 100) return
         lastBroadcastMs = now
         val text = buildStatusJson()
         broadcastWebSocketText(text)
@@ -461,6 +651,14 @@ class IpCameraServer(
 
             val contentLength = headers["content-length"]?.toIntOrNull() ?: 0
             val contentType = headers["content-type"] ?: ""
+
+            // Handle WebSocket Upgrade (RFC 6455)
+            val isWsUpgrade = headers["upgrade"]?.equals("websocket", ignoreCase = true) == true || path == "/ws" || path == "/api/ws"
+            val wsKey = headers["sec-websocket-key"]
+            if (isWsUpgrade && wsKey != null) {
+                handleWebSocketSession(socket, rawIn, out, wsKey)
+                return
+            }
 
             when {
                 // MJPEG Video Stream
@@ -897,6 +1095,43 @@ class IpCameraServer(
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
+                method == "POST" && path == "/api/music/speed" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val speed = obj.optDouble("speed", 1.0).toFloat()
+                    onSetMusicSpeed(speed)
+                    broadcastMusicPlayerUpdate()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/music/seek_relative" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val offset = obj.optLong("offsetMs", 0L)
+                    onSeekMusicRelative(offset)
+                    broadcastMusicPlayerUpdate()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/system/upload_apk_raw" -> {
+                    val apkBytes = readExactBytes(rawIn, contentLength)
+                    val fileName = headers["x-file-name"] ?: "DeskClock_update.apk"
+                    if (apkBytes.isNotEmpty()) {
+                        val (success, message) = onUpdateApk(fileName, apkBytes)
+                        val respObj = JSONObject().apply {
+                            put("success", success)
+                            put("message", message)
+                            put("fileName", fileName)
+                            put("fileSize", apkBytes.size)
+                        }
+                        sendResponse(out, if (success) 200 else 400, "application/json", respObj.toString().toByteArray())
+                    } else {
+                        sendResponse(out, 400, "application/json", "{\"success\":false,\"message\":\"APKデータが空です\"}".toByteArray())
+                    }
+                }
+
                 method == "POST" && path == "/api/music/repeat" -> {
                     val bodyBytes = readExactBytes(rawIn, contentLength)
                     val bodyStr = String(bodyBytes, Charsets.UTF_8)
@@ -1224,51 +1459,63 @@ class IpCameraServer(
 
     private fun parseMultipartFile(bodyBytes: ByteArray, contentType: String, defaultName: String): Pair<String, ByteArray> {
         try {
-            if (contentType.contains("multipart/form-data")) {
-                val boundaryParam = contentType.split(";").find { it.trim().startsWith("boundary=") }
-                val boundary = boundaryParam?.substringAfter("boundary=")?.trim()?.removeSurrounding("\"")
-                if (boundary != null) {
-                    val boundaryBytes = ("--$boundary").toByteArray(Charsets.UTF_8)
-                    val headerEndMarker = "\r\n\r\n".toByteArray(Charsets.ISO_8859_1)
-                    var dataStartIndex = -1
-                    for (i in 0 until (bodyBytes.size - 4).coerceAtLeast(0)) {
-                        if (bodyBytes[i] == headerEndMarker[0] &&
-                            bodyBytes[i + 1] == headerEndMarker[1] &&
-                            bodyBytes[i + 2] == headerEndMarker[2] &&
-                            bodyBytes[i + 3] == headerEndMarker[3]) {
-                            dataStartIndex = i + 4
-                            break
-                        }
-                    }
+            if (!contentType.contains("multipart/form-data")) {
+                return Pair(defaultName, bodyBytes)
+            }
 
-                    if (dataStartIndex != -1) {
-                        val headerStr = String(bodyBytes, 0, dataStartIndex, Charsets.UTF_8)
-                        val filenameMatch = Regex("filename=\"([^\"]+)\"").find(headerStr)
-                        val originalFilename = filenameMatch?.groupValues?.get(1)?.trim() ?: defaultName
+            val boundaryParam = contentType.split(";").find { it.trim().startsWith("boundary=") }
+            val rawBoundary = boundaryParam?.substringAfter("boundary=")?.trim()?.removeSurrounding("\"")
+            val boundaryPattern = if (rawBoundary != null) "--$rawBoundary" else null
 
-                        var dataEndIndex = bodyBytes.size
-                        for (i in (bodyBytes.size - boundaryBytes.size - 32).coerceAtLeast(dataStartIndex) until (bodyBytes.size - boundaryBytes.size).coerceAtLeast(0)) {
-                            var match = true
-                            for (j in boundaryBytes.indices) {
-                                if (bodyBytes[i + j] != boundaryBytes[j]) {
-                                    match = false
-                                    break
-                                }
-                            }
-                            if (match) {
-                                var end = i
-                                if (end >= 2 && bodyBytes[end - 2] == '\r'.code.toByte() && bodyBytes[end - 1] == '\n'.code.toByte()) {
-                                    end -= 2
-                                }
-                                dataEndIndex = end
+            var dataStartIndex = -1
+            for (i in 0 until (bodyBytes.size - 3).coerceAtLeast(0)) {
+                if (bodyBytes[i] == '\r'.code.toByte() &&
+                    bodyBytes[i + 1] == '\n'.code.toByte() &&
+                    bodyBytes[i + 2] == '\r'.code.toByte() &&
+                    bodyBytes[i + 3] == '\n'.code.toByte()) {
+                    dataStartIndex = i + 4
+                    break
+                }
+                if (bodyBytes[i] == '\n'.code.toByte() &&
+                    bodyBytes[i + 1] == '\n'.code.toByte()) {
+                    dataStartIndex = i + 2
+                    break
+                }
+            }
+
+            if (dataStartIndex != -1) {
+                val headerStr = String(bodyBytes, 0, dataStartIndex, Charsets.UTF_8)
+                val filenameMatch = Regex("filename=\"?([^\";\\r\\n]+)\"?").find(headerStr)
+                val originalFilename = filenameMatch?.groupValues?.get(1)?.trim()?.ifBlank { defaultName } ?: defaultName
+
+                var dataEndIndex = bodyBytes.size
+                if (boundaryPattern != null) {
+                    val boundaryBytes = boundaryPattern.toByteArray(Charsets.UTF_8)
+                    for (i in dataStartIndex until (bodyBytes.size - boundaryBytes.size + 1)) {
+                        var match = true
+                        for (j in boundaryBytes.indices) {
+                            if (bodyBytes[i + j] != boundaryBytes[j]) {
+                                match = false
                                 break
                             }
                         }
-
-                        val fileData = bodyBytes.copyOfRange(dataStartIndex, dataEndIndex.coerceAtLeast(dataStartIndex))
-                        return Pair(originalFilename, fileData)
+                        if (match) {
+                            var end = i
+                            if (end >= 2 && bodyBytes[end - 2] == '\r'.code.toByte() && bodyBytes[end - 1] == '\n'.code.toByte()) {
+                                end -= 2
+                            } else if (end >= 1 && bodyBytes[end - 1] == '\n'.code.toByte()) {
+                                end -= 1
+                            }
+                            dataEndIndex = end
+                            break
+                        }
                     }
                 }
+
+                val safeStart = dataStartIndex.coerceIn(0, bodyBytes.size)
+                val safeEnd = dataEndIndex.coerceIn(safeStart, bodyBytes.size)
+                val fileData = bodyBytes.copyOfRange(safeStart, safeEnd)
+                return Pair(originalFilename, fileData)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing multipart file", e)
@@ -2226,9 +2473,9 @@ class IpCameraServer(
             <span class="node-tag">$ip:$port</span>
         </div>
         <div class="header-meta">
-            <div class="status-pill">
-                <span class="status-dot"></span>
-                <span>Connected</span>
+            <div class="status-pill" id="wsStatusBadge" style="background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); color:#10b981;">
+                <span class="status-dot" id="wsStatusDot" style="background:#10b981;"></span>
+                <span id="wsStatusText">WS: 接続中 (リアルタイム)</span>
             </div>
             <div class="clock-display" id="headerClock">--:--:--</div>
             <button class="btn btn-outline btn-sm" onclick="fetchStatus()">
@@ -2240,7 +2487,8 @@ class IpCameraServer(
 
     <div class="nav-tabs-container">
         <div class="nav-tabs">
-            <button class="tab-btn active" onclick="switchTab('camera', this)">
+            ${WebDashboardMusic.getMusicTabNavButtonHtml()}
+            <button class="tab-btn" onclick="switchTab('camera', this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
                 Camera & Audio
             </button>
@@ -2252,7 +2500,6 @@ class IpCameraServer(
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                 Media Files
             </button>
-            ${WebDashboardMusic.getMusicTabNavButtonHtml()}
             <button class="tab-btn" onclick="switchTab('clock', this)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 Display & Theme
@@ -2271,8 +2518,8 @@ class IpCameraServer(
     </div>
 
     <main>
-        <!-- TAB 1: CAMERA & AUDIO -->
-        <div id="tab-camera" class="tab-content active">
+        <!-- TAB 1: CAMERA & AUDIO (User Requested: 軽量化のため初期表示停止・オンデマンド開始) -->
+        <div id="tab-camera" class="tab-content">
             <div class="card">
                 <div class="card-header">
                     <div>
@@ -2283,6 +2530,10 @@ class IpCameraServer(
                         <div class="card-description">Real-time low latency MJPEG stream from the device camera</div>
                     </div>
                     <div style="display:flex; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-primary btn-sm" id="btnToggleCameraStream" onclick="toggleCameraStream()">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width:13px; height:13px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            ライブ映像開始
+                        </button>
                         <button class="btn btn-outline btn-sm" onclick="toggleLens()">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                             Switch Lens
@@ -2297,9 +2548,19 @@ class IpCameraServer(
                         </button>
                     </div>
                 </div>
-                <div class="video-box">
-                    <img id="cameraStreamImg" src="/video" alt="Camera Stream" onerror="setTimeout(() => this.src='/video?' + Date.now(), 2000);">
-                    <div class="video-overlay">
+                <div class="video-box" style="position:relative; min-height:240px; display:flex; align-items:center; justify-content:center; background:#070a10;">
+                    <!-- Lightweight placeholder (User Requested: 初期カメラは重いからやめてくれ) -->
+                    <div id="cameraStartPlaceholder" style="padding:44px 20px; text-align:center; width:100%;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width:48px; height:48px; color:var(--primary); margin:0 auto 12px auto; display:block;"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        <div style="color:#fff; font-size:1.05rem; font-weight:700; margin-bottom:6px;">IP カメラ ライブ映像</div>
+                        <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:16px;">初期表示の帯域・CPU負荷軽減のため待機中です。</div>
+                        <button class="btn btn-primary" onclick="startCameraStream()" style="margin:0 auto; padding:8px 20px; font-size:0.88rem;">
+                            <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px; height:14px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            ライブ映像を開始
+                        </button>
+                    </div>
+                    <img id="cameraStreamImg" src="" alt="Camera Stream" style="display:none; width:100%; height:auto;" onerror="if (this.src) setTimeout(() => { if (this.src) this.src='/video?' + Date.now(); }, 2500);">
+                    <div class="video-overlay" id="cameraVideoOverlay" style="display:none;">
                         <div class="video-badge" id="cameraStatsTag">
                             <div class="rec-indicator"></div>
                             <span>Connecting...</span>
@@ -3103,6 +3364,9 @@ class IpCameraServer(
 
     <script>
         var currentData = null;
+        var ws = null;
+        var wsReconnectTimer = null;
+        var isCameraStreaming = false;
 
         function showToast(msg) {
             var t = document.getElementById('toast');
@@ -3111,15 +3375,114 @@ class IpCameraServer(
             setTimeout(() => t.classList.remove('show'), 2800);
         }
 
+        function updateWsBadge(connected) {
+            var badge = document.getElementById('wsStatusBadge');
+            var dot = document.getElementById('wsStatusDot');
+            var text = document.getElementById('wsStatusText');
+            if (badge && text) {
+                if (connected) {
+                    badge.style.background = 'rgba(16, 185, 129, 0.15)';
+                    badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                    badge.style.color = '#10b981';
+                    if (dot) dot.style.background = '#10b981';
+                    text.innerText = '⚡ WS: リアルタイム同期中';
+                } else {
+                    badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                    badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                    badge.style.color = '#f87171';
+                    if (dot) dot.style.background = '#ef4444';
+                    text.innerText = 'WS: 切断 (再接続中...)';
+                }
+            }
+        }
+
+        function initWebSocket() {
+            if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+            var loc = window.location;
+            var proto = loc.protocol === 'https:' ? 'wss://' : 'ws://';
+            var url = proto + loc.host + '/ws';
+            try {
+                ws = new WebSocket(url);
+                ws.onopen = function() {
+                    updateWsBadge(true);
+                    ws.send(JSON.stringify({ action: 'get_status' }));
+                };
+                ws.onmessage = function(e) {
+                    try {
+                        var data = JSON.parse(e.data);
+                        currentData = data;
+                        renderData(data);
+                    } catch (err) {
+                        console.error('WebSocket parse error', err);
+                    }
+                };
+                ws.onclose = function() {
+                    updateWsBadge(false);
+                    wsReconnectTimer = setTimeout(initWebSocket, 2000);
+                };
+                ws.onerror = function() {
+                    if (ws) ws.close();
+                };
+            } catch (_) {
+                wsReconnectTimer = setTimeout(initWebSocket, 3000);
+            }
+        }
+
+        function startCameraStream() {
+            var img = document.getElementById('cameraStreamImg');
+            var placeholder = document.getElementById('cameraStartPlaceholder');
+            var overlay = document.getElementById('cameraVideoOverlay');
+            var btn = document.getElementById('btnToggleCameraStream');
+            if (img) {
+                img.src = '/video?' + Date.now();
+                img.style.display = 'block';
+            }
+            if (placeholder) placeholder.style.display = 'none';
+            if (overlay) overlay.style.display = 'flex';
+            if (btn) {
+                btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"/></svg> 映像停止';
+                btn.className = 'btn btn-danger btn-sm';
+            }
+            isCameraStreaming = true;
+            showToast('カメラ映像ストリーミングを開始しました');
+        }
+
+        function stopCameraStream() {
+            var img = document.getElementById('cameraStreamImg');
+            var placeholder = document.getElementById('cameraStartPlaceholder');
+            var overlay = document.getElementById('cameraVideoOverlay');
+            var btn = document.getElementById('btnToggleCameraStream');
+            if (img) {
+                img.src = '';
+                img.style.display = 'none';
+            }
+            if (placeholder) placeholder.style.display = 'block';
+            if (overlay) overlay.style.display = 'none';
+            if (btn) {
+                btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" style="width:13px;height:13px;"><polygon points="5 3 19 12 5 21 5 3"/></svg> ライブ映像開始';
+                btn.className = 'btn btn-primary btn-sm';
+            }
+            isCameraStreaming = false;
+        }
+
+        function toggleCameraStream() {
+            if (isCameraStreaming) stopCameraStream();
+            else startCameraStream();
+        }
+
         function switchTab(tabName, btnEl) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.getElementById('tab-' + tabName).classList.add('active');
+            var targetContent = document.getElementById('tab-' + tabName);
+            if (targetContent) targetContent.classList.add('active');
             if (btnEl) {
                 btnEl.classList.add('active');
             } else {
-                var targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabName));
+                var targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes(tabName));
                 if (targetBtn) targetBtn.classList.add('active');
+            }
+            if (tabName !== 'camera' && isCameraStreaming) {
+                stopCameraStream();
             }
         }
 
@@ -3557,13 +3920,18 @@ class IpCameraServer(
             showToast('Testing schedule on device...');
         }
 
-        // Music Player Actions (User Requested)
+        // Music Player Actions (User Requested: WebSocket優先で超低遅延同期)
         function musicAction(action, data) {
-            fetch('/api/music/' + action, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data || {})
-            }).then(function() { refreshData(); });
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                var payload = Object.assign({ action: 'music_' + action }, data || {});
+                ws.send(JSON.stringify(payload));
+            } else {
+                fetch('/api/music/' + action, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data || {})
+                }).then(function() { fetchStatus(); });
+            }
         }
 
         function playCustomMusic(id, path) {
@@ -4485,6 +4853,7 @@ class IpCameraServer(
         ${WebDashboardIrEsp.getIrEspScript()}
         ${WebDashboardUpdates.getUpdatesScript()}
 
+        initWebSocket();
         fetchStatus();
         fetchLogs();
     </script>

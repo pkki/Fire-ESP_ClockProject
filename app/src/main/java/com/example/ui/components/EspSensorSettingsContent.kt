@@ -306,48 +306,48 @@ fun EspSensorSettingsContent(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // BLE Option (ESP32-C3 Auto-connect Recommended)
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (isBleMode) Color(0x3300E5FF) else Color(0x18FFFFFF))
                             .border(
-                                width = if (isBleMode) 1.5.dp else 1.dp,
+                                width = if (isBleMode) 2.dp else 1.dp,
                                 color = if (isBleMode) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = RoundedCornerShape(12.dp)
                             )
                             .clickable {
                                 viewModel.updateEspSensorPreferences(mode = "BLE")
                             }
-                            .padding(10.dp)
+                            .padding(12.dp)
                     ) {
                         Column {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Bluetooth,
                                     contentDescription = null,
                                     tint = if (isBleMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = "Bluetooth",
                                     color = if (isBleMode) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.5.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "ESP32-C3専用。起動するだけでアプリが自動検出＆自動接続します",
                                 color = Color(0xFF94A3B8),
-                                fontSize = 9.5.sp,
-                                lineHeight = 13.sp
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
                             )
                         }
                     }
@@ -356,42 +356,42 @@ fun EspSensorSettingsContent(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (isUsbMode) Color(0x3300E5FF) else Color(0x18FFFFFF))
                             .border(
-                                width = if (isUsbMode) 1.5.dp else 1.dp,
+                                width = if (isUsbMode) 2.dp else 1.dp,
                                 color = if (isUsbMode) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = RoundedCornerShape(12.dp)
                             )
                             .clickable {
                                 viewModel.updateEspSensorPreferences(mode = "USB")
                             }
-                            .padding(10.dp)
+                            .padding(12.dp)
                     ) {
                         Column {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Usb,
                                     contentDescription = null,
                                     tint = if (isUsbMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = "USB直結",
                                     color = if (isUsbMode) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.5.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "OTGケーブルでタブレットに挿すだけ。給電と通信を1本で実現",
                                 color = Color(0xFF94A3B8),
-                                fontSize = 9.5.sp,
-                                lineHeight = 13.sp
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
                             )
                         }
                     }
@@ -400,42 +400,42 @@ fun EspSensorSettingsContent(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (isWifiMode) Color(0x3300E5FF) else Color(0x18FFFFFF))
                             .border(
-                                width = if (isWifiMode) 1.5.dp else 1.dp,
+                                width = if (isWifiMode) 2.dp else 1.dp,
                                 color = if (isWifiMode) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = RoundedCornerShape(12.dp)
                             )
                             .clickable {
                                 viewModel.updateEspSensorPreferences(mode = "WIFI")
                             }
-                            .padding(10.dp)
+                            .padding(12.dp)
                     ) {
                         Column {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Wifi,
                                     contentDescription = null,
                                     tint = if (isWifiMode) Color(0xFF00E5FF) else Color(0xFF94A3B8),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = "Wi-Fi",
                                     color = if (isWifiMode) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.5.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "同一LAN上のESPからHTTP通信で取得します",
                                 color = Color(0xFF94A3B8),
-                                fontSize = 9.5.sp,
-                                lineHeight = 13.sp
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
                             )
                         }
                     }
@@ -462,9 +462,10 @@ fun EspSensorSettingsContent(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "※ ESP32の電源を入れると、アプリが自動でスキャンしペアリング不要で直接接続します。Android設定でペアリング済みの場合も自動検出されます。",
+                        text = "※ アプリ起動時および電源投入時に自動検出・接続します。定期ハートビート監視により長時間の切断を防止し、万一の電波途切れ時も手動操作なしで自動的に再接続されます。",
                         color = Color(0xFF38BDF8),
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -500,13 +501,13 @@ fun EspSensorSettingsContent(
                             Button(
                                 onClick = { viewModel.refreshBleDevices() },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0x2200E5FF)),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp),
-                                shape = RoundedCornerShape(6.dp)
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(38.dp),
+                                shape = RoundedCornerShape(8.dp)
                             ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("再スキャン", fontSize = 10.sp, color = Color(0xFF00E5FF))
+                                Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("再スキャン", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
                             }
                         }
 
@@ -515,54 +516,66 @@ fun EspSensorSettingsContent(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = "検出中のデバイスはありません。ESP32の電源を入れて「再スキャン」を押すか、Android設定のBluetoothでペアリングしてください。",
-                                fontSize = 10.5.sp,
+                                fontSize = 11.5.sp,
                                 color = Color(0xFF94A3B8),
-                                lineHeight = 14.sp
+                                lineHeight = 16.sp
                             )
                         } else {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 allDevices.forEach { dev ->
+                                    val isSavedTarget = dev.address.equals(preferences.espBleDeviceAddress, ignoreCase = true)
                                     val isConnectedDev = sensorData.isConnected && dev.isConnected
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .clip(RoundedCornerShape(10.dp))
                                             .background(if (isConnectedDev) Color(0x3300E5FF) else Color(0x14FFFFFF))
                                             .border(
-                                                1.dp,
+                                                1.5.dp,
                                                 if (isConnectedDev) Color(0xFF00E5FF) else Color(0x22FFFFFF),
-                                                RoundedCornerShape(8.dp)
+                                                RoundedCornerShape(10.dp)
                                             )
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 Text(
                                                     text = dev.name,
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = FontWeight.Bold,
                                                     color = Color.White
                                                 )
+                                                if (isSavedTarget) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(Color(0x3300E5FF))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text("自動再接続先", fontSize = 10.sp, color = Color(0xFF00E5FF), fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
                                                 if (dev.isBonded) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .clip(RoundedCornerShape(6.dp))
                                                             .background(Color(0x3338BDF8))
-                                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                                     ) {
-                                                        Text("ペアリング済", fontSize = 9.sp, color = Color(0xFF38BDF8))
+                                                        Text("ペアリング済", fontSize = 10.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
                                                     }
                                                 }
                                                 if (dev.rssi != null) {
-                                                    Text("${dev.rssi}dBm", fontSize = 9.5.sp, color = Color(0xFF888888))
+                                                    Text("${dev.rssi}dBm", fontSize = 11.sp, color = Color(0xFF888888))
                                                 }
                                             }
+                                            Spacer(modifier = Modifier.height(2.dp))
                                             Text(
                                                 text = dev.address,
-                                                fontSize = 9.5.sp,
+                                                fontSize = 11.sp,
                                                 fontFamily = FontFamily.Monospace,
                                                 color = Color(0xFF94A3B8)
                                             )
@@ -573,13 +586,13 @@ fun EspSensorSettingsContent(
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = if (isConnectedDev) Color(0xFF059669) else Color(0xFF00E5FF)
                                             ),
-                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(28.dp),
-                                            shape = RoundedCornerShape(6.dp)
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                            modifier = Modifier.height(38.dp),
+                                            shape = RoundedCornerShape(8.dp)
                                         ) {
                                             Text(
                                                 text = if (isConnectedDev) "接続中" else "接続",
-                                                fontSize = 10.5.sp,
+                                                fontSize = 12.5.sp,
                                                 color = if (isConnectedDev) Color.White else Color.Black,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -1192,25 +1205,28 @@ fun EspSensorSettingsContent(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(
                         onClick = { espBinPicker.launch("*/*") },
                         enabled = !isFlashingOta,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloudUpload,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(18.dp),
                             tint = Color.White
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isFlashingOta) "書き込み中..." else "ファームウェア(.bin)を選択して更新",
-                            fontSize = 11.5.sp,
+                            text = if (isFlashingOta) "書き込み中..." else "ファームウェア(.bin)更新",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -1224,16 +1240,20 @@ fun EspSensorSettingsContent(
                             Toast.makeText(context, "最新スケッチコードをクリップボードにコピーしました", Toast.LENGTH_SHORT).show()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0x3338BDF8)),
-                        shape = RoundedCornerShape(10.dp)
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = null,
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(16.dp),
                             tint = Color(0xFF38BDF8)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("スケッチコピー", fontSize = 11.sp, color = Color(0xFF38BDF8))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("スケッチコピー", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF38BDF8))
                     }
                 }
 

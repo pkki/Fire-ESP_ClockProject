@@ -12,6 +12,8 @@ import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,10 +34,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AlarmOff
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -129,8 +136,10 @@ fun DeskClockMainScreen(
     val irButtons by viewModel.irButtons.collectAsState()
     var showIrQuickSheet by remember { mutableStateOf(false) }
 
-    // Alarm Clock and Physical Button states
+    // Alarm Clock, Chimes, and Physical Button states
     val isAlarmRinging by viewModel.isAlarmRinging.collectAsState()
+    val isChimeRinging by viewModel.isChimeRinging.collectAsState()
+    val chimeRingingInfo by viewModel.chimeRingingInfo.collectAsState()
     val isFireAlertRinging by viewModel.isFireAlertRinging.collectAsState()
     val fireAlertDetails by viewModel.fireAlertDetails.collectAsState()
     val lastPhysicalButtonEvent by viewModel.lastPhysicalButtonEvent.collectAsState()
@@ -709,6 +718,80 @@ fun DeskClockMainScreen(
                 .align(Alignment.TopCenter)
                 .padding(top = 16.dp)
         )
+
+        // 10.5 Hourly / Scheduled Chime Ringing Stop HUD Banner (時間ごとチャイム アラーム停止ボタン連動)
+        AnimatedVisibility(
+            visible = isChimeRinging,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = if (lastPhysicalButtonEvent != null) 76.dp else 16.dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .border(
+                        1.5.dp,
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            listOf(Color(0xFFFFB74D), Color(0xFFFF5252))
+                        ),
+                        RoundedCornerShape(20.dp)
+                    )
+                    .clickable { viewModel.stopAlarm() },
+                color = Color(0xF21C1820),
+                tonalElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NotificationsActive,
+                        contentDescription = "Chime",
+                        tint = Color(0xFFFFCA28),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Column {
+                        Text(
+                            text = chimeRingingInfo ?: "🔔 時報チャイム鳴動中",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "アラーム消すボタンで停止可能",
+                            color = Color(0xFFB0BEC5),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Button(
+                        onClick = { viewModel.stopAlarm() },
+                        modifier = Modifier
+                            .height(40.dp)
+                            .testTag("stop_alarm_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3D00))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AlarmOff,
+                            contentDescription = "Stop",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "停止",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
 
         // 11. Alarm Ringing Full-Screen Overlay
         AlarmRingingOverlay(

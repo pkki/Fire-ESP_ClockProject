@@ -32,6 +32,8 @@ object ChimeSynthesizer {
     private var countdownJob: Job? = null
     private var alarmJob: Job? = null
     private var fireSirenJob: Job? = null
+    @Volatile
+    private var activeAudioTrack: AudioTrack? = null
 
     fun playFireSirenLoop(volume: Float = 1.0f) {
         fireSirenJob?.cancel()
@@ -72,14 +74,33 @@ object ChimeSynthesizer {
         }
     }
 
+    fun stopChime() {
+        playbackJob?.cancel()
+        playbackJob = null
+        countdownJob?.cancel()
+        countdownJob = null
+        try {
+            activeAudioTrack?.let {
+                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    it.pause()
+                    it.flush()
+                    it.stop()
+                }
+                it.release()
+            }
+        } catch (_: Exception) {}
+        activeAudioTrack = null
+    }
+
     fun stopAlarm() {
         alarmJob?.cancel()
         alarmJob = null
-        playbackJob?.cancel()
-        playbackJob = null
+        stopChime()
     }
 
     fun isAlarmPlaying(): Boolean = alarmJob?.isActive == true
+
+    fun isChimePlaying(): Boolean = playbackJob?.isActive == true || activeAudioTrack != null
 
     fun playButtonClickFeedback(volume: Float = 0.5f) {
         scope.launch {
@@ -198,6 +219,7 @@ object ChimeSynthesizer {
                     .setTransferMode(AudioTrack.MODE_STATIC)
                     .build()
 
+                activeAudioTrack = staticTrack
                 staticTrack.write(samples, 0, samples.size)
                 staticTrack.setVolume(validVolume)
                 try {
@@ -209,6 +231,9 @@ object ChimeSynthesizer {
                 delay(durationMs)
             } catch (_: Exception) {
             } finally {
+                if (activeAudioTrack === staticTrack) {
+                    activeAudioTrack = null
+                }
                 try {
                     staticTrack?.let {
                         AudioEqualizerManager.unregisterAudioSession(it.audioSessionId)
@@ -247,6 +272,7 @@ object ChimeSynthesizer {
             .build()
 
         try {
+            activeAudioTrack = audioTrack
             try {
                 AudioEqualizerManager.registerAudioSession(audioTrack.audioSessionId)
             } catch (_: Exception) {}
@@ -267,6 +293,9 @@ object ChimeSynthesizer {
             delay(tailWaitMs)
         } catch (_: Exception) {
         } finally {
+            if (activeAudioTrack === audioTrack) {
+                activeAudioTrack = null
+            }
             try {
                 AudioEqualizerManager.unregisterAudioSession(audioTrack.audioSessionId)
                 audioTrack.stop()

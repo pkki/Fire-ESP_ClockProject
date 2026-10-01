@@ -216,9 +216,9 @@ object VoiceCommandProcessor {
             callbacks.startTimer(180)
             return VoiceCommandResult(true, "3分タイマーを開始しました。", "⏱ 3分タイマー開始", "TIMER_START_3M")
         }
-        if (matchesAny(text, "アラーム止めて", "アラーム停止", "うるさい", "起きたよ", "起きた", "おはよう止めて")) {
+        if (matchesAny(text, "アラーム止めて", "アラーム停止", "うるさい", "起きたよ", "起きた", "おはよう止めて", "チャイム止めて", "時報止めて", "音止めて", "ストップ", "チャイム停止", "時報停止")) {
             callbacks.stopAlarm()
-            return VoiceCommandResult(true, "アラームを停止しました。おはようございます！", "⏰ アラーム停止", "ALARM_STOP")
+            return VoiceCommandResult(true, "アラーム・時報チャイムを停止しました。", "⏰ アラーム・時報停止", "ALARM_STOP")
         }
 
         // 6. Weather & Temperature (天気・気温)
