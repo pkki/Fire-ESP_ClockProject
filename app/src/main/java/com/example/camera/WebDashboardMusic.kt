@@ -218,7 +218,10 @@ object WebDashboardMusic {
                     <!-- Top Action Right: Device Indicator & Speed Control -->
                     <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
                         <span style="font-size:0.75rem; color:var(--text-muted);">再生先: <strong>Android 本体スピーカー</strong></span>
-                        <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+                            <button class="btn btn-outline btn-sm" onclick="listenCurrentTrackInBrowser()" style="padding:2px 8px; font-size:0.72rem; border-color:var(--primary); color:var(--primary);" title="選択中の楽曲をブラウザで試聴再生">
+                                🎧 ブラウザで聞く
+                            </button>
                             <span style="font-size:0.75rem; color:var(--text-muted);">速度:</span>
                             <select id="mpSpeedSelect" onchange="onMusicSpeedChange(this.value)" style="padding:2px 8px; font-size:0.75rem; width:auto; border-radius:4px; background:var(--surface-subtle); color:var(--text-main); border:1px solid var(--border-color);">
                                 <option value="0.5">0.5x</option>
@@ -822,6 +825,16 @@ object WebDashboardMusic {
             var container = document.getElementById('mpPlaylistContainer');
             if (!container) return;
 
+            var currentTrackId = data.musicPlayer ? data.musicPlayer.currentTrackId : null;
+            var isPlaying = data.musicPlayer ? data.musicPlayer.isPlaying : false;
+
+            var lastPlaylistSig = container.dataset.sig || '';
+            var currentPlaylistSig = audios.map(function(x) { return x.id + ':' + x.name; }).join('|') + '|' + currentTrackId + ':' + isPlaying;
+            if (lastPlaylistSig === currentPlaylistSig) {
+                return;
+            }
+            container.dataset.sig = currentPlaylistSig;
+
             if (audios.length === 0) {
                 container.innerHTML = '<div style="text-align:center; padding:32px 16px; color:var(--text-muted);">' +
                     '<div style="font-size:2rem; margin-bottom:8px;">🎵</div>' +
@@ -830,9 +843,6 @@ object WebDashboardMusic {
                     '</div>';
                 return;
             }
-
-            var currentTrackId = data.musicPlayer ? data.musicPlayer.currentTrackId : null;
-            var isPlaying = data.musicPlayer ? data.musicPlayer.isPlaying : false;
 
             var html = '';
             audios.forEach(function(a, idx) {
@@ -850,18 +860,17 @@ object WebDashboardMusic {
                         '<div style="flex:1;">' +
                             '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">' +
                                 '<span style="font-size:0.9rem; font-weight:600; color:#fff; word-break:break-all;">' + a.name + '</span>' +
-                                (isThisPlaying ? '<span class="tag tag-primary" style="font-size:0.7rem;">再生中</span>' : (isCurrent ? '<span class="tag" style="font-size:0.7rem;">選択中</span>' : '')) +
-                            '</div>' +
-                            '<div style="margin-top:4px;">' +
-                                '<audio src="/media/audio/' + a.id + '" controls style="height:26px; width:100%; max-width:220px;"></audio>' +
+                                (isThisPlaying ? '<span class="tag tag-primary" style="font-size:0.7rem;">時計で再生中</span>' : (isCurrent ? '<span class="tag" style="font-size:0.7rem;">選択中</span>' : '')) +
                             '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">' +
+                        '<button class="btn btn-outline btn-sm browser-preview-btn" data-id="' + safeId + '" onclick="toggleBrowserAudio(\'' + safeId + '\', \'' + safeName + '\')">🎧 聞く</button>' +
+                        '<a href="/media/audio/' + safeId + '?download=1" download="' + safeName + '" class="btn btn-outline btn-sm" style="text-decoration:none;">⬇ ダウンロード</a>' +
                         '<button class="btn ' + (isThisPlaying ? 'btn-primary' : 'btn-outline') + ' btn-sm" onclick="' + (isThisPlaying ? 'musicAction(\'toggle\')' : ('playCustomMusic(\'' + safeId + '\', \'' + safePath + '\')')) + '">' +
-                            (isThisPlaying ? '⏸ 一時停止' : '▶ 再生') +
+                            (isThisPlaying ? '⏸ 一時停止' : '▶ 時計で再生') +
                         '</button>' +
-                        '<button class="btn btn-outline btn-sm" onclick="testCustomAudio(\'' + safePath + '\')" title="時報音としてテスト再生">🔔 試聴</button>' +
+                        '<button class="btn btn-outline btn-sm" onclick="testCustomAudio(\'' + safePath + '\')" title="時報音としてテスト再生">🔔 時報テスト</button>' +
                         '<button class="btn btn-outline btn-sm" onclick="renameMediaPrompt(\'' + safeId + '\', \'audio\', \'' + safeName + '\')">✏ 改名</button>' +
                         '<button class="btn btn-danger btn-sm" onclick="deleteMedia(\'' + safeId + '\', \'audio\')">🗑 削除</button>' +
                     '</div>' +
@@ -939,6 +948,20 @@ object WebDashboardMusic {
                 body: JSON.stringify({ sound: soundName, volume: 0.85 })
             });
             showToast('本体で ' + soundName + ' を鳴動テスト中...');
+        }
+
+        function listenCurrentTrackInBrowser() {
+            var trackId = (lastMpState && lastMpState.currentTrackId) ? lastMpState.currentTrackId : null;
+            var trackName = (lastMpState && lastMpState.currentTrackName) ? lastMpState.currentTrackName : '';
+            if (!trackId && currentData && currentData.customAudios && currentData.customAudios.length > 0) {
+                trackId = currentData.customAudios[0].id;
+                trackName = currentData.customAudios[0].name;
+            }
+            if (trackId && typeof toggleBrowserAudio === 'function') {
+                toggleBrowserAudio(trackId, trackName);
+            } else {
+                showToast('再生可能な音楽ファイルがありません');
+            }
         }
         """.trimIndent()
     }

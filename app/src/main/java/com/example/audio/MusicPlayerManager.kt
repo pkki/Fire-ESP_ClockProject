@@ -216,9 +216,13 @@ object MusicPlayerManager {
     }
 
     fun togglePlayPause() {
-        val mp = mediaPlayer ?: return
-        if (mp.isPlaying) {
-            pause()
+        val mp = mediaPlayer
+        if (mp != null) {
+            if (mp.isPlaying) {
+                pause()
+            } else {
+                resume()
+            }
         } else {
             resume()
         }

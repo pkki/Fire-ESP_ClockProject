@@ -2310,7 +2310,19 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleMusicPlayPause() {
-        MusicPlayerManager.togglePlayPause()
+        if (MusicPlayerManager.playerState.value.isPlaying) {
+            MusicPlayerManager.pause()
+        } else if (MusicPlayerManager.playerState.value.isPaused) {
+            MusicPlayerManager.resume()
+        } else {
+            val track = MusicPlayerManager.playerState.value.currentTrack
+                ?: customAudioList.value.firstOrNull()
+            if (track != null) {
+                playMusic(track, customAudioList.value)
+            } else {
+                MusicPlayerManager.togglePlayPause()
+            }
+        }
     }
 
     fun pauseMusic() {

@@ -272,6 +272,7 @@ class IpCameraServer(
 
     private val webSocketSessions = CopyOnWriteArrayList<WebSocketSession>()
     private var lastBroadcastMs = 0L
+    private var wsBroadcastThread: Thread? = null
 
     private fun computeWebSocketAccept(key: String): String {
         val guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -389,7 +390,9 @@ class IpCameraServer(
                 "music_play" -> {
                     val id = obj.optString("id")
                     val filePath = obj.optString("filePath")
-                    val track = customAudioProvider().find { it.id == id || it.filePath == filePath }
+                    val audios = customAudioProvider()
+                    val track = audios.find { (id.isNotEmpty() && it.id == id) || (filePath.isNotEmpty() && it.filePath == filePath) }
+                        ?: audios.firstOrNull()
                     if (track != null) {
                         onPlayMusic(track)
                     } else if (filePath.isNotEmpty()) {
@@ -461,10 +464,16 @@ class IpCameraServer(
         }
     }
 
+    fun broadcastWebSocketStatus() {
+        if (webSocketSessions.isEmpty()) return
+        val text = buildStatusJson()
+        broadcastWebSocketText(text)
+    }
+
     fun broadcastMusicPlayerUpdate() {
         if (webSocketSessions.isEmpty()) return
         val now = System.currentTimeMillis()
-        if (now - lastBroadcastMs < 100) return
+        if (now - lastBroadcastMs < 80) return
         lastBroadcastMs = now
         val text = buildStatusJson()
         broadcastWebSocketText(text)
@@ -498,6 +507,21 @@ class IpCameraServer(
                     }
                 }
             }, "IpCameraServerThread").apply { start() }
+
+            // Periodic WebSocket status broadcast (every 1s) to avoid client HTTP polling
+            wsBroadcastThread = Thread({
+                while (isRunning.get()) {
+                    try {
+                        Thread.sleep(1000)
+                        if (webSocketSessions.isNotEmpty()) {
+                            broadcastWebSocketStatus()
+                        }
+                    } catch (_: InterruptedException) {
+                        break
+                    } catch (_: Exception) {}
+                }
+            }, "IpCameraWsBroadcaster").apply { start() }
+
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start IP Camera Server on port $port", e)
@@ -507,6 +531,11 @@ class IpCameraServer(
 
     fun stop() {
         if (!isRunning.getAndSet(false)) return
+        try {
+            wsBroadcastThread?.interrupt()
+        } catch (_: Exception) {}
+        wsBroadcastThread = null
+
         try {
             serverSocket?.close()
         } catch (e: Exception) {
@@ -718,25 +747,38 @@ class IpCameraServer(
                     }
                 }
 
-                // Stream audio file from device
+                // Stream audio file from device (or download with ?download=1)
                 path.startsWith("/media/audio/") -> {
-                    val id = path.removePrefix("/media/audio/")
-                    val item = customAudioProvider().find { it.id == id }
+                    val rawId = path.removePrefix("/media/audio/").substringBefore("?").trim()
+                    val item = customAudioProvider().find { it.id == rawId }
                     if (item != null && File(item.filePath).exists()) {
                         val file = File(item.filePath)
-                        sendFileResponse(out, file, "audio/*")
+                        val isDownload = path.contains("download=1")
+                        val fileName = item.name.ifBlank { file.name }
+                        val mime = when {
+                            file.extension.equals("mp3", true) -> "audio/mpeg"
+                            file.extension.equals("wav", true) -> "audio/wav"
+                            file.extension.equals("ogg", true) -> "audio/ogg"
+                            file.extension.equals("m4a", true) -> "audio/mp4"
+                            file.extension.equals("aac", true) -> "audio/aac"
+                            file.extension.equals("flac", true) -> "audio/flac"
+                            else -> "audio/*"
+                        }
+                        sendFileResponse(out, file, mime, isDownload = isDownload, downloadFileName = fileName)
                     } else {
                         sendResponse(out, 404, "text/plain", "Audio not found".toByteArray())
                     }
                 }
 
-                // Stream video file from device
+                // Stream video file from device (or download with ?download=1)
                 path.startsWith("/media/video/") -> {
-                    val id = path.removePrefix("/media/video/")
-                    val item = customVideoProvider().find { it.id == id }
+                    val rawId = path.removePrefix("/media/video/").substringBefore("?").trim()
+                    val item = customVideoProvider().find { it.id == rawId }
                     if (item != null && File(item.filePath).exists()) {
                         val file = File(item.filePath)
-                        sendFileResponse(out, file, "video/mp4")
+                        val isDownload = path.contains("download=1")
+                        val fileName = item.name.ifBlank { file.name }
+                        sendFileResponse(out, file, "video/mp4", isDownload = isDownload, downloadFileName = fileName)
                     } else {
                         sendResponse(out, 404, "text/plain", "Video not found".toByteArray())
                     }
@@ -1054,26 +1096,31 @@ class IpCameraServer(
                     if (target != null) {
                         onPlayMusic(target)
                     }
+                    broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
                 method == "POST" && path == "/api/music/toggle" -> {
                     onToggleMusic()
+                    broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
                 method == "POST" && path == "/api/music/next" -> {
                     onNextMusic()
+                    broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
                 method == "POST" && path == "/api/music/prev" -> {
                     onPrevMusic()
+                    broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
                 method == "POST" && path == "/api/music/stop" -> {
                     onStopMusic()
+                    broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
@@ -1438,12 +1485,28 @@ class IpCameraServer(
         out.flush()
     }
 
-    private fun sendFileResponse(out: OutputStream, file: File, contentType: String) {
+    private fun sendFileResponse(
+        out: OutputStream,
+        file: File,
+        contentType: String,
+        isDownload: Boolean = false,
+        downloadFileName: String = ""
+    ) {
         val length = file.length()
+        val safeFileName = (if (downloadFileName.isNotBlank()) downloadFileName else file.name)
+            .replace("\"", "").replace("\r", "").replace("\n", "")
+        val disposition = if (isDownload) {
+            val encodedName = java.net.URLEncoder.encode(safeFileName, "UTF-8").replace("+", "%20")
+            "Content-Disposition: attachment; filename=\"$safeFileName\"; filename*=UTF-8''$encodedName\r\n"
+        } else {
+            "Content-Disposition: inline\r\n"
+        }
         val header = ("HTTP/1.0 200 OK\r\n" +
                 "Server: DeskClock-Web\r\n" +
                 "Content-Type: $contentType\r\n" +
                 "Content-Length: $length\r\n" +
+                disposition +
+                "Accept-Ranges: bytes\r\n" +
                 "Access-Control-Allow-Origin: *\r\n" +
                 "Connection: close\r\n\r\n").toByteArray(Charsets.UTF_8)
         out.write(header)
@@ -3497,6 +3560,10 @@ class IpCameraServer(
         updateClock();
 
         function fetchStatus() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'get_status' }));
+                return;
+            }
             fetch('/api/data')
                 .then(res => res.json())
                 .then(data => {
@@ -3618,38 +3685,41 @@ class IpCameraServer(
             var audios = data.customAudios || [];
             document.getElementById('audioCount').innerText = audios.length;
             var audEl = document.getElementById('customAudioList');
-            if (audios.length === 0) {
-                audEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.82rem; padding:8px 0;">No audio files uploaded. Upload audio above to use in chimes.</p>';
-            } else {
-                var aHtml = '';
-                audios.forEach(a => {
-                    var safePath = encodeURIComponent(a.filePath);
-                    var safeName = a.name.replace(/'/g, "\\'");
-                    var safeId = a.id;
-                    var isCurrentMusic = data.musicPlayer && data.musicPlayer.currentTrackId === a.id;
-                    var isPlayingMusic = isCurrentMusic && data.musicPlayer.isPlaying;
-                    var playBtnLabel = isPlayingMusic ? '⏸ Pause' : '▶ Play in Player';
+            var audSig = audios.map(function(a) { return a.id + ':' + a.name; }).join('|') + '|' + (data.musicPlayer ? data.musicPlayer.currentTrackId + ':' + data.musicPlayer.isPlaying : '');
+            if (audEl.dataset.sig !== audSig) {
+                audEl.dataset.sig = audSig;
+                if (audios.length === 0) {
+                    audEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.82rem; padding:8px 0;">音声ファイルがありません。上のエリアからアップロードしてください。</p>';
+                } else {
+                    var aHtml = '';
+                    audios.forEach(a => {
+                        var safePath = encodeURIComponent(a.filePath);
+                        var safeName = a.name.replace(/'/g, "\\'");
+                        var safeId = a.id;
+                        var isCurrentMusic = data.musicPlayer && data.musicPlayer.currentTrackId === a.id;
+                        var isPlayingMusic = isCurrentMusic && data.musicPlayer.isPlaying;
+                        var playBtnLabel = isPlayingMusic ? '⏸ 時計で一時停止' : '▶ 時計で再生';
 
-                    aHtml += '<div class="item-card" style="' + (isPlayingMusic ? 'border-color:var(--primary); background:rgba(0,229,255,0.08);' : '') + '">' +
-                        '<div style="flex:1; min-width:180px;">' +
-                            '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">' +
-                                '<span style="font-size:0.88rem; font-weight:600; color:#fff; word-break:break-all;">' + a.name + '</span>' +
-                                (isPlayingMusic ? '<span class="tag tag-primary">Playing Now</span>' : '') +
-                                '<button class="btn btn-outline btn-sm" style="padding:2px 6px; font-size:0.72rem;" onclick="renameMediaPrompt(\'' + safeId + '\', \'audio\', \'' + safeName + '\')">Rename</button>' +
+                        aHtml += '<div class="item-card" style="' + (isPlayingMusic ? 'border-color:var(--primary); background:rgba(0,229,255,0.08);' : '') + '">' +
+                            '<div style="flex:1; min-width:180px;">' +
+                                '<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">' +
+                                    '<span style="font-size:0.88rem; font-weight:600; color:#fff; word-break:break-all;">' + a.name + '</span>' +
+                                    (isPlayingMusic ? '<span class="tag tag-primary">時計で再生中</span>' : '') +
+                                    '<button class="btn btn-outline btn-sm" style="padding:2px 6px; font-size:0.72rem;" onclick="renameMediaPrompt(\'' + safeId + '\', \'audio\', \'' + safeName + '\')">改名</button>' +
+                                '</div>' +
                             '</div>' +
-                            '<div style="margin-top:6px;">' +
-                                '<audio src="/media/audio/' + a.id + '" controls style="height:28px; width:100%; max-width:240px;"></audio>' +
+                            '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">' +
+                                '<button class="btn btn-outline btn-sm browser-preview-btn" data-id="' + safeId + '" onclick="toggleBrowserAudio(\'' + safeId + '\', \'' + safeName + '\')">🎧 聞く</button>' +
+                                '<a href="/media/audio/' + safeId + '?download=1" download="' + safeName + '" class="btn btn-outline btn-sm" style="text-decoration:none;">⬇ ダウンロード</a>' +
+                                '<button class="btn btn-primary btn-sm" onclick="' + (isPlayingMusic ? 'musicAction(\'toggle\')' : ('playCustomMusic(\'' + safeId + '\', \'' + safePath + '\')')) + '">' + playBtnLabel + '</button>' +
+                                '<button class="btn btn-outline btn-sm" onclick="testCustomAudio(\'' + safePath + '\')">時報テスト</button>' +
+                                '<button class="btn btn-outline btn-sm" onclick="openAddChimeWithAudio(\'' + a.id + '\', \'' + safeName + '\', \'' + safePath + '\')">スケジュール</button>' +
+                                '<button class="btn btn-danger btn-sm" onclick="deleteMedia(\'' + a.id + '\', \'audio\')">削除</button>' +
                             '</div>' +
-                        '</div>' +
-                        '<div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">' +
-                            '<button class="btn btn-primary btn-sm" onclick="' + (isPlayingMusic ? 'musicAction(\'toggle\')' : ('playCustomMusic(\'' + safeId + '\', \'' + safePath + '\')')) + '">' + playBtnLabel + '</button>' +
-                            '<button class="btn btn-outline btn-sm" onclick="testCustomAudio(\'' + safePath + '\')">Test Chime</button>' +
-                            '<button class="btn btn-outline btn-sm" onclick="openAddChimeWithAudio(\'' + a.id + '\', \'' + safeName + '\', \'' + safePath + '\')">Schedule</button>' +
-                            '<button class="btn btn-danger btn-sm" onclick="deleteMedia(\'' + a.id + '\', \'audio\')">Delete</button>' +
-                        '</div>' +
-                    '</div>';
-                });
-                audEl.innerHTML = aHtml;
+                        '</div>';
+                    });
+                    audEl.innerHTML = aHtml;
+                }
             }
 
             // Render Custom Videos
@@ -3816,27 +3886,79 @@ class IpCameraServer(
             });
         }
 
-        // Fast polling for VU meter and status
-        setInterval(function() {
-            fetch('/api/status')
-                .then(function(res) { return res.json(); })
-                .then(function(data) {
-                    if (data.camera && data.camera.audioLevelPercent !== undefined) {
-                        updateVuMeter(data.camera.audioLevelPercent);
-                    }
-                    if (data.camera) {
-                        var statsTag = document.getElementById('cameraStatsTag');
-                        if (statsTag) {
-                            var lensName = data.camera.useFrontCamera ? 'Front Camera' : 'Back Camera';
-                            var fps = data.camera.targetFps || 15;
-                            var clients = data.camera.clientCount || 0;
-                            var audioClients = data.camera.audioClientCount || 0;
-                            statsTag.innerHTML = '<div class="rec-indicator"></div><span>LIVE • ' + lensName + ' • ' + fps + 'fps • Video: ' + clients + ' / Audio: ' + audioClients + '</span>';
-                        }
-                    }
-                })
-                .catch(function() {});
-        }, 1500);
+        // Global Browser Audio Preview Controller (User Requested: 聞くボタンを押した時のみ再生)
+        var browserAudio = null;
+        var browserPlayingId = null;
+
+        function toggleBrowserAudio(id, name) {
+            if (browserAudio && browserPlayingId === id) {
+                if (!browserAudio.paused) {
+                    browserAudio.pause();
+                    updateBrowserPreviewButtons(id, false);
+                    showToast('ブラウザ試聴を一時停止しました');
+                    return;
+                } else {
+                    browserAudio.play().then(function() {
+                        updateBrowserPreviewButtons(id, true);
+                        showToast('ブラウザ試聴を再開しました: ' + name);
+                    }).catch(function(err) {
+                        console.error('Browser play resume error:', err);
+                    });
+                    return;
+                }
+            }
+
+            if (browserAudio) {
+                browserAudio.pause();
+                browserAudio.src = '';
+                if (browserPlayingId) updateBrowserPreviewButtons(browserPlayingId, false);
+            }
+
+            browserAudio = new Audio('/media/audio/' + id);
+            browserPlayingId = id;
+            updateBrowserPreviewButtons(id, true);
+
+            browserAudio.onplay = function() {
+                updateBrowserPreviewButtons(id, true);
+            };
+            browserAudio.onpause = function() {
+                updateBrowserPreviewButtons(id, false);
+            };
+            browserAudio.onended = function() {
+                updateBrowserPreviewButtons(id, false);
+                browserPlayingId = null;
+            };
+            browserAudio.onerror = function() {
+                showToast('音声の読み込みに失敗しました');
+                updateBrowserPreviewButtons(id, false);
+                browserPlayingId = null;
+            };
+
+            browserAudio.play().catch(function(e) {
+                console.error('Browser audio play error:', e);
+                showToast('ブラウザ再生に失敗しました（画面操作後に再試行してください）');
+                updateBrowserPreviewButtons(id, false);
+                browserPlayingId = null;
+            });
+
+            showToast('ブラウザ試聴開始: ' + name);
+        }
+
+        function updateBrowserPreviewButtons(activeId, isPlaying) {
+            var btns = document.querySelectorAll('.browser-preview-btn');
+            btns.forEach(function(b) {
+                var id = b.getAttribute('data-id');
+                if (id === activeId && isPlaying) {
+                    b.innerHTML = '⏸ ブラウザ停止';
+                    b.classList.remove('btn-outline');
+                    b.classList.add('btn-primary');
+                } else {
+                    b.innerHTML = '🎧 聞く';
+                    b.classList.remove('btn-primary');
+                    b.classList.add('btn-outline');
+                }
+            });
+        }
 
         var volumeDebounceTimer = null;
         function onVolumeSliderChange(val) {
