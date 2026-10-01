@@ -2387,9 +2387,6 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         MusicPlayerManager.stop()
         dismissBackgroundVideo()
-        if (playAudio) {
-            applyTemporaryPlaybackVolume(volume)
-        }
         VideoPlayerManager.playVideo(video, VideoDisplayLayer.BACKGROUND, playAudio, volume, isLooping)
     }
 
@@ -2397,14 +2394,11 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         video: CustomVideoItem,
         displayLayer: VideoDisplayLayer = VideoDisplayLayer.BACKGROUND,
         playAudio: Boolean = true,
-        volume: Float = preferences.value.chimeVolume,
+        volume: Float = preferences.value.musicPlayerVolume,
         isLooping: Boolean = true
     ) {
         videoDismissJob?.cancel()
         MusicPlayerManager.stop()
-        if (playAudio) {
-            applyTemporaryPlaybackVolume(volume)
-        }
         VideoPlayerManager.playVideo(video, displayLayer, playAudio, volume, isLooping)
         _activeBackgroundVideo.value = ActiveBackgroundVideo(
             chimeId = null,
@@ -2546,7 +2540,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         customVideoPath: String? = null,
         customVideoName: String? = null,
         playVideoAudio: Boolean = true,
-        volume: Float = preferences.value.chimeVolume,
+        volume: Float = preferences.value.musicPlayerVolume,
         durationSeconds: Int = ScheduledChime.DURATION_VIDEO_LENGTH,
         displayLayer: VideoDisplayLayer = try {
             VideoDisplayLayer.valueOf(preferences.value.defaultVideoDisplayLayer)
@@ -2555,9 +2549,35 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
     ) {
         videoDismissJob?.cancel()
-        if (playVideoAudio) {
-            applyTemporaryPlaybackVolume(volume)
+        MusicPlayerManager.stop()
+
+        if (videoSourceType == ChimeVideoSourceType.CUSTOM_FILE && !customVideoPath.isNullOrEmpty()) {
+            val curVid = VideoPlayerManager.playerState.value
+            val isAlreadyPlaying = curVid.currentVideo?.filePath == customVideoPath && curVid.isPlaying
+            if (!isAlreadyPlaying) {
+                val videoItem = customVideoList.value.find { it.filePath == customVideoPath }
+                    ?: CustomVideoItem(
+                        id = customVideoPath.hashCode().toString(),
+                        name = customVideoName ?: File(customVideoPath).name,
+                        filePath = customVideoPath
+                    )
+                VideoPlayerManager.playVideo(
+                    video = videoItem,
+                    displayLayer = displayLayer,
+                    playAudio = playVideoAudio,
+                    volume = volume,
+                    isLooping = (durationSeconds != -1 && durationSeconds != 0) || durationSeconds == 0
+                )
+            } else {
+                VideoPlayerManager.setDisplayLayer(displayLayer)
+                if (playVideoAudio) {
+                    VideoPlayerManager.setVolume(volume)
+                }
+            }
+        } else {
+            VideoPlayerManager.stop()
         }
+
         _activeBackgroundVideo.value = ActiveBackgroundVideo(
             chimeId = null,
             chimeLabel = if (displayLayer == VideoDisplayLayer.FOREGROUND) "前面動画再生" else "背景動画再生",
@@ -2571,26 +2591,24 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             displayLayer = displayLayer
         )
 
+        val isScheduledChime = durationSeconds > 0 && durationSeconds != -2
         if (durationSeconds == ScheduledChime.DURATION_VIDEO_LENGTH) {
             if (!customVideoPath.isNullOrEmpty()) {
                 val durSec = getVideoDurationSeconds(customVideoPath)
                 videoDismissJob = viewModelScope.launch {
                     delay((durSec + 2) * 1000L)
                     _activeBackgroundVideo.value = null
-                    if (playVideoAudio) forceRestoreDeviceVolume()
                 }
             } else {
                 videoDismissJob = viewModelScope.launch {
-                    delay(30 * 1000L)
+                    delay(60 * 1000L)
                     _activeBackgroundVideo.value = null
-                    if (playVideoAudio) forceRestoreDeviceVolume()
                 }
             }
-        } else if (durationSeconds > 0) {
+        } else if (durationSeconds > 0 && isScheduledChime) {
             videoDismissJob = viewModelScope.launch {
                 delay(durationSeconds * 1000L)
                 _activeBackgroundVideo.value = null
-                if (playVideoAudio) forceRestoreDeviceVolume()
             }
         }
     }

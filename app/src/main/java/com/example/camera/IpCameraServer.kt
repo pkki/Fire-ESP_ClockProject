@@ -472,9 +472,6 @@ class IpCameraServer(
 
     fun broadcastMusicPlayerUpdate() {
         if (webSocketSessions.isEmpty()) return
-        val now = System.currentTimeMillis()
-        if (now - lastBroadcastMs < 80) return
-        lastBroadcastMs = now
         val text = buildStatusJson()
         broadcastWebSocketText(text)
     }
@@ -1095,6 +1092,9 @@ class IpCameraServer(
                         ?: audios.firstOrNull()
                     if (target != null) {
                         onPlayMusic(target)
+                    } else if (filePath.isNotEmpty()) {
+                        val fileName = filePath.substringAfterLast("/").substringAfterLast("\\")
+                        onPlayMusic(CustomAudioItem(id = id.ifBlank { "custom_${System.currentTimeMillis()}" }, name = fileName, filePath = filePath))
                     }
                     broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
@@ -1979,11 +1979,13 @@ class IpCameraServer(
             put("isPaused", mpState.isPaused)
             put("currentTrackName", mpState.currentTrack?.name ?: "")
             put("currentTrackId", mpState.currentTrack?.id ?: "")
+            put("currentTrackPath", mpState.currentTrack?.filePath ?: "")
             put("currentPositionMs", mpState.currentPositionMs)
             put("durationMs", mpState.durationMs)
             put("positionFormatted", mpState.positionFormatted)
             put("durationFormatted", mpState.durationFormatted)
             put("volume", mpState.volume)
+            put("playbackSpeed", mpState.playbackSpeed)
             put("repeatMode", mpState.repeatMode.name)
             put("repeatModeLabel", mpState.repeatMode.label)
         }
@@ -3685,7 +3687,10 @@ class IpCameraServer(
             var audios = data.customAudios || [];
             document.getElementById('audioCount').innerText = audios.length;
             var audEl = document.getElementById('customAudioList');
-            var audSig = audios.map(function(a) { return a.id + ':' + a.name; }).join('|') + '|' + (data.musicPlayer ? data.musicPlayer.currentTrackId + ':' + data.musicPlayer.isPlaying : '');
+            var currentTrackId = data.musicPlayer ? data.musicPlayer.currentTrackId : null;
+            var currentTrackPath = data.musicPlayer ? data.musicPlayer.currentTrackPath : null;
+            var isMusicPlaying = data.musicPlayer ? data.musicPlayer.isPlaying : false;
+            var audSig = audios.map(function(a) { return a.id + ':' + a.name; }).join('|') + '|' + currentTrackId + ':' + currentTrackPath + ':' + isMusicPlaying;
             if (audEl.dataset.sig !== audSig) {
                 audEl.dataset.sig = audSig;
                 if (audios.length === 0) {
@@ -3696,8 +3701,8 @@ class IpCameraServer(
                         var safePath = encodeURIComponent(a.filePath);
                         var safeName = a.name.replace(/'/g, "\\'");
                         var safeId = a.id;
-                        var isCurrentMusic = data.musicPlayer && data.musicPlayer.currentTrackId === a.id;
-                        var isPlayingMusic = isCurrentMusic && data.musicPlayer.isPlaying;
+                        var isCurrentMusic = (currentTrackId && currentTrackId === a.id) || (currentTrackPath && currentTrackPath === a.filePath);
+                        var isPlayingMusic = isCurrentMusic && isMusicPlaying;
                         var playBtnLabel = isPlayingMusic ? '⏸ 時計で一時停止' : '▶ 時計で再生';
 
                         aHtml += '<div class="item-card" style="' + (isPlayingMusic ? 'border-color:var(--primary); background:rgba(0,229,255,0.08);' : '') + '">' +
@@ -4970,6 +4975,10 @@ class IpCameraServer(
                 if (typeof syncEspOtaHostFromPrefs === 'function') syncEspOtaHostFromPrefs();
             }
         };
+
+        function refreshData() {
+            fetchStatus();
+        }
 
         ${WebDashboardMusic.getMusicJs()}
         ${WebDashboardIrEsp.getIrEspScript()}

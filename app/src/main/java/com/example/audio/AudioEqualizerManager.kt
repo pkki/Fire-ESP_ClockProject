@@ -1,5 +1,8 @@
 package com.example.audio
 
+import android.content.Context
+import android.content.Intent
+import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
@@ -14,13 +17,16 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Centralized Audio Equalizer, Hardware BassBoost, and Virtualizer Sound Effects Manager
- * - Applies 5-band graphic equalizer across all audio players in the application
- * - Hardware BassBoost (0% to 100%) for deep, punchy low-end response
- * - Hardware Virtualizer (3D Surround Sound) for spatial audio expansion
- * - Supports presets (Rock, Pop, Jazz, EDM, Bass Boost, Vocal, etc.) and custom sliders
+ * - Robust Android 7 (Nougat, API 24/25) and modern Android compatibility
+ * - Applies 5-band graphic equalizer across all audio and video players in the application
+ * - Broadcasts ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION to trigger Android OS audio DSP engine
+ * - Direct band mapping (0 to numBands - 1) avoiding HAL getBand frequency aliasing
+ * - Hardware BassBoost (0% to 100%) and Virtualizer (3D Surround Sound)
  */
 object AudioEqualizerManager {
     private const val TAG = "AudioEqualizerManager"
+
+    private var appContext: Context? = null
 
     private val _equalizerState = MutableStateFlow(EqualizerState())
     val equalizerState: StateFlow<EqualizerState> = _equalizerState.asStateFlow()
@@ -32,6 +38,10 @@ object AudioEqualizerManager {
 
     // Callback when state changes to persist to preferences
     var onStateChanged: ((EqualizerState) -> Unit)? = null
+
+    fun initContext(context: Context) {
+        appContext = context.applicationContext
+    }
 
     /**
      * Initialize equalizer state from saved preferences
@@ -76,14 +86,32 @@ object AudioEqualizerManager {
     fun registerAudioSession(sessionId: Int) {
         if (sessionId <= 0) return
         try {
-            // Check if already registered
-            if (activeEqualizers.containsKey(sessionId)) return
+            // Notify system audio effect control engine (Required on Android 7)
+            appContext?.let { ctx ->
+                try {
+                    val intent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                        putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+                        putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
+                        putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+                    }
+                    ctx.sendBroadcast(intent)
+                } catch (e: Exception) {
+                    Log.d(TAG, "AudioEffect broadcast open failed: ${e.message}")
+                }
+            }
 
+            // If already registered, update settings and return
+            activeEqualizers[sessionId]?.let { eq ->
+                applyStateToEqualizer(eq, _equalizerState.value)
+                return
+            }
+
+            // Create Equalizer with priority 0 (standard and safe across Android 7+ HALs)
             val eq = Equalizer(0, sessionId).apply {
                 enabled = _equalizerState.value.isEnabled
             }
 
-            // Read supported center frequencies if available
+            // Read supported center frequencies
             try {
                 val numBands = eq.numberOfBands.toInt()
                 if (numBands > 0) {
@@ -106,7 +134,7 @@ object AudioEqualizerManager {
             activeEqualizers[sessionId] = eq
             applyStateToEqualizer(eq, _equalizerState.value)
 
-            // Try binding hardware BassBoost
+            // Setup hardware BassBoost
             try {
                 val bb = BassBoost(0, sessionId)
                 val curState = _equalizerState.value
@@ -117,10 +145,10 @@ object AudioEqualizerManager {
                 }
                 activeBassBoosts[sessionId] = bb
             } catch (e: Exception) {
-                Log.d(TAG, "BassBoost not supported on this session: ${e.message}")
+                Log.d(TAG, "BassBoost not supported on session $sessionId: ${e.message}")
             }
 
-            // Try binding hardware Virtualizer (3D Surround)
+            // Setup hardware Virtualizer
             try {
                 val virt = Virtualizer(0, sessionId)
                 val curState = _equalizerState.value
@@ -131,7 +159,7 @@ object AudioEqualizerManager {
                 }
                 activeVirtualizers[sessionId] = virt
             } catch (e: Exception) {
-                Log.d(TAG, "Virtualizer not supported on this session: ${e.message}")
+                Log.d(TAG, "Virtualizer not supported on session $sessionId: ${e.message}")
             }
 
             Log.d(TAG, "Audio session $sessionId registered to Equalizer (active count: ${activeEqualizers.size})")
@@ -146,6 +174,16 @@ object AudioEqualizerManager {
     fun unregisterAudioSession(sessionId: Int) {
         if (sessionId <= 0) return
         try {
+            appContext?.let { ctx ->
+                try {
+                    val intent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                        putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+                        putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
+                    }
+                    ctx.sendBroadcast(intent)
+                } catch (_: Exception) {}
+            }
+
             activeEqualizers.remove(sessionId)?.let { eq ->
                 try {
                     eq.enabled = false
@@ -290,22 +328,40 @@ object AudioEqualizerManager {
 
     private fun applyStateToEqualizer(eq: Equalizer, state: EqualizerState) {
         try {
-            eq.enabled = state.isEnabled
-            if (!state.isEnabled) return
+            val numBands = try { eq.numberOfBands.toInt() } catch (_: Exception) { 0 }
+            if (numBands <= 0) return
+
+            val minLevel = try { eq.bandLevelRange?.get(0)?.toInt() ?: -1500 } catch (_: Exception) { -1500 }
+            val maxLevel = try { eq.bandLevelRange?.get(1)?.toInt() ?: 1500 } catch (_: Exception) { 1500 }
 
             val effectiveGains = state.getEffectiveBandGains()
-            val numBands = eq.numberOfBands.toInt()
-            val minLevel = eq.bandLevelRange?.get(0)?.toInt() ?: -1500
-            val maxLevel = eq.bandLevelRange?.get(1)?.toInt() ?: 1500
 
-            for (i in 0 until minOf(effectiveGains.size, numBands)) {
-                val gainDb = effectiveGains[i]
-                // Convert dB to millibels (1 dB = 100 mB)
+            // Ensure equalizer effect is enabled
+            eq.enabled = state.isEnabled
+
+            // Direct 1:1 band index mapping to guarantee every hardware band receives its exact level
+            for (i in 0 until numBands) {
+                val gainDb = if (numBands == 5) {
+                    effectiveGains.getOrElse(i) { 0 }
+                } else {
+                    val mappedIdx = ((i.toFloat() / (numBands - 1).coerceAtLeast(1)) * 4f).toInt().coerceIn(0, 4)
+                    effectiveGains.getOrElse(mappedIdx) { 0 }
+                }
+
+                // 1 dB = 100 milliBels
                 val targetMilliBels = (gainDb * 100).coerceIn(minLevel, maxLevel).toShort()
-                eq.setBandLevel(i.toShort(), targetMilliBels)
+
+                try {
+                    eq.setBandLevel(i.toShort(), targetMilliBels)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error setting band $i to $targetMilliBels: ${e.message}")
+                }
             }
+
+            // Re-confirm enabled state
+            eq.enabled = state.isEnabled
         } catch (e: Exception) {
-            Log.w(TAG, "Error applying band levels to Equalizer: ${e.message}")
+            Log.w(TAG, "Error applying state to Equalizer: ${e.message}")
         }
     }
 

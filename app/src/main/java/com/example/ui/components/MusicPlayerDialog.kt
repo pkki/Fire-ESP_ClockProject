@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -774,6 +775,8 @@ fun MusicPlayerDialog(
                                                     ChimeVideoSourceType.CUSTOM_FILE,
                                                     customVideoPath = currentVid.filePath,
                                                     customVideoName = currentVid.name,
+                                                    playVideoAudio = true,
+                                                    volume = videoState.volume,
                                                     durationSeconds = 0,
                                                     displayLayer = VideoDisplayLayer.FOREGROUND
                                                 )
@@ -795,6 +798,8 @@ fun MusicPlayerDialog(
                                                     ChimeVideoSourceType.CUSTOM_FILE,
                                                     customVideoPath = currentVid.filePath,
                                                     customVideoName = currentVid.name,
+                                                    playVideoAudio = true,
+                                                    volume = videoState.volume,
                                                     durationSeconds = 0,
                                                     displayLayer = VideoDisplayLayer.BACKGROUND
                                                 )
@@ -1499,7 +1504,9 @@ fun MusicPlayerDialog(
                                                                     ChimeVideoSourceType.CUSTOM_FILE,
                                                                     customVideoPath = video.filePath,
                                                                     customVideoName = video.name,
-                                                                    durationSeconds = -2,
+                                                                    playVideoAudio = true,
+                                                                    volume = videoState.volume,
+                                                                    durationSeconds = 0,
                                                                     displayLayer = VideoDisplayLayer.FOREGROUND
                                                                 )
                                                                 Toast.makeText(context, "前面全画面で動画を再生中", Toast.LENGTH_SHORT).show()
@@ -1520,7 +1527,9 @@ fun MusicPlayerDialog(
                                                                     ChimeVideoSourceType.CUSTOM_FILE,
                                                                     customVideoPath = video.filePath,
                                                                     customVideoName = video.name,
-                                                                    durationSeconds = -2,
+                                                                    playVideoAudio = true,
+                                                                    volume = videoState.volume,
+                                                                    durationSeconds = 0,
                                                                     displayLayer = VideoDisplayLayer.BACKGROUND
                                                                 )
                                                                 Toast.makeText(context, "時計の背景で動画を再生中", Toast.LENGTH_SHORT).show()

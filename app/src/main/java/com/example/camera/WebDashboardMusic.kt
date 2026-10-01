@@ -621,6 +621,12 @@ object WebDashboardMusic {
                 else repeatIcon.innerText = '🔁';
             }
 
+            // Speed Selector sync
+            var speedSel = document.getElementById('mpSpeedSelect');
+            if (speedSel && mp.playbackSpeed !== undefined && !speedSel.matches(':focus')) {
+                speedSel.value = String(mp.playbackSpeed);
+            }
+
             // 7. Volume Slider
             var volSlider = document.getElementById('mpVolumeSlider');
             var volPct = document.getElementById('mpVolumePercent');
@@ -826,10 +832,11 @@ object WebDashboardMusic {
             if (!container) return;
 
             var currentTrackId = data.musicPlayer ? data.musicPlayer.currentTrackId : null;
+            var currentTrackPath = data.musicPlayer ? data.musicPlayer.currentTrackPath : null;
             var isPlaying = data.musicPlayer ? data.musicPlayer.isPlaying : false;
 
             var lastPlaylistSig = container.dataset.sig || '';
-            var currentPlaylistSig = audios.map(function(x) { return x.id + ':' + x.name; }).join('|') + '|' + currentTrackId + ':' + isPlaying;
+            var currentPlaylistSig = audios.map(function(x) { return x.id + ':' + x.name; }).join('|') + '|' + currentTrackId + ':' + currentTrackPath + ':' + isPlaying;
             if (lastPlaylistSig === currentPlaylistSig) {
                 return;
             }
@@ -846,7 +853,7 @@ object WebDashboardMusic {
 
             var html = '';
             audios.forEach(function(a, idx) {
-                var isCurrent = currentTrackId === a.id;
+                var isCurrent = (currentTrackId && a.id === currentTrackId) || (currentTrackPath && a.filePath === currentTrackPath);
                 var isThisPlaying = isCurrent && isPlaying;
                 var safePath = encodeURIComponent(a.filePath);
                 var safeName = a.name.replace(/'/g, "\\'");

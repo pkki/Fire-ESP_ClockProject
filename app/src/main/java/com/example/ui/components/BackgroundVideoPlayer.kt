@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.model.ActiveBackgroundVideo
 import com.example.model.ChimeVideoSourceType
+import com.example.model.CustomVideoItem
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.cos
@@ -471,73 +472,66 @@ fun CustomVideoTexturePlayer(
     modifier: Modifier = Modifier
 ) {
     val currentOnVideoEnded by androidx.compose.runtime.rememberUpdatedState(onVideoEnded)
+    val videoState by VideoPlayerManager.playerState.collectAsState()
+
+    // Ensure VideoPlayerManager is playing this video without duplicate player creation
+    LaunchedEffect(videoPath, playAudio, volume, durationSeconds) {
+        val current = VideoPlayerManager.playerState.value
+        val isSame = current.currentVideo?.filePath == videoPath && current.isPlaying
+        if (!isSame) {
+            val fileName = File(videoPath).name
+            val videoItem = CustomVideoItem(
+                id = videoPath.hashCode().toString(),
+                name = fileName,
+                filePath = videoPath
+            )
+            VideoPlayerManager.onVideoCompletion = {
+                currentOnVideoEnded?.invoke()
+            }
+            VideoPlayerManager.playVideo(
+                video = videoItem,
+                playAudio = playAudio,
+                volume = volume,
+                isLooping = (durationSeconds != -1)
+            )
+        }
+    }
+
+    var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
+
+    fun updateMatrix(tv: TextureView, vw: Int, vh: Int) {
+        val viewW = tv.width
+        val viewH = tv.height
+        if (viewW <= 0 || viewH <= 0 || vw <= 0 || vh <= 0) return
+
+        val matrix = android.graphics.Matrix()
+        val viewWidthF = viewW.toFloat()
+        val viewHeightF = viewH.toFloat()
+        val videoWidthF = vw.toFloat()
+        val videoHeightF = vh.toFloat()
+
+        val scaleX: Float
+        val scaleY: Float
+
+        when (videoState.aspectRatio) {
+            VideoAspectRatio.FILL_CROP -> {
+                val scale = maxOf(viewWidthF / videoWidthF, viewHeightF / videoHeightF)
+                scaleX = (videoWidthF * scale) / viewWidthF
+                scaleY = (videoHeightF * scale) / viewHeightF
+            }
+            VideoAspectRatio.FIT, VideoAspectRatio.ORIGINAL -> {
+                val scale = minOf(viewWidthF / videoWidthF, viewHeightF / videoHeightF)
+                scaleX = (videoWidthF * scale) / viewWidthF
+                scaleY = (videoHeightF * scale) / viewHeightF
+            }
+        }
+
+        matrix.setScale(scaleX, scaleY, viewWidthF / 2f, viewHeightF / 2f)
+        tv.setTransform(matrix)
+    }
 
     AndroidView(
         factory = { ctx ->
-            var player: MediaPlayer? = null
-            var activeSurface: Surface? = null
-
-            fun startPlayback(texture: android.graphics.SurfaceTexture) {
-                try {
-                    player?.stop()
-                    player?.release()
-                    player = null
-                    activeSurface?.release()
-                    activeSurface = null
-
-                    val file = File(videoPath)
-                    if (!file.exists()) {
-                        android.util.Log.e("CustomVideoTexturePlayer", "Video file does not exist: $videoPath")
-                        currentOnVideoEnded?.invoke()
-                        return
-                    }
-
-                    val surface = Surface(texture)
-                    activeSurface = surface
-
-                    val mp = MediaPlayer().apply {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                                .build()
-                        )
-                        java.io.FileInputStream(file).use { fis ->
-                            setDataSource(fis.fd)
-                        }
-                        setSurface(surface)
-                        isLooping = (durationSeconds != -1)
-                        if (durationSeconds == -1) {
-                            setOnCompletionListener {
-                                currentOnVideoEnded?.invoke()
-                            }
-                        }
-                        setOnErrorListener { _, what, extra ->
-                            android.util.Log.e("CustomVideoTexturePlayer", "MediaPlayer error: what=$what, extra=$extra")
-                            currentOnVideoEnded?.invoke()
-                            true
-                        }
-                        if (!playAudio) {
-                            setVolume(0f, 0f)
-                        } else {
-                            setVolume(volume, volume)
-                        }
-                        setOnPreparedListener { p ->
-                            val sessionId = p.audioSessionId
-                            if (sessionId > 0) {
-                                com.example.audio.AudioEqualizerManager.registerAudioSession(sessionId)
-                            }
-                            p.start()
-                        }
-                        prepareAsync()
-                    }
-                    player = mp
-                } catch (e: Exception) {
-                    android.util.Log.e("CustomVideoTexturePlayer", "Error initializing MediaPlayer", e)
-                    currentOnVideoEnded?.invoke()
-                }
-            }
-
             TextureView(ctx).apply {
                 layoutParams = FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -549,42 +543,44 @@ fun CustomVideoTexturePlayer(
                         width: Int,
                         height: Int
                     ) {
-                        startPlayback(surfaceTexture)
+                        textureViewRef = this@apply
+                        val surface = Surface(surfaceTexture)
+                        VideoPlayerManager.attachSurface(surface)
+                        updateMatrix(this@apply, videoState.videoWidth, videoState.videoHeight)
                     }
 
                     override fun onSurfaceTextureSizeChanged(
                         surfaceTexture: android.graphics.SurfaceTexture,
                         width: Int,
                         height: Int
-                    ) {}
+                    ) {
+                        updateMatrix(this@apply, videoState.videoWidth, videoState.videoHeight)
+                    }
 
                     override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
-                        try {
-                            player?.let { p ->
-                                val sessionId = try { p.audioSessionId } catch (_: Exception) { 0 }
-                                if (sessionId > 0) {
-                                    com.example.audio.AudioEqualizerManager.unregisterAudioSession(sessionId)
-                                }
-                                p.stop()
-                                p.release()
-                            }
-                            player = null
-                            activeSurface?.release()
-                            activeSurface = null
-                        } catch (_: Exception) {}
+                        textureViewRef = null
+                        VideoPlayerManager.detachSurface()
                         return true
                     }
 
                     override fun onSurfaceTextureUpdated(surfaceTexture: android.graphics.SurfaceTexture) {}
                 }
-
-                if (isAvailable && surfaceTexture != null) {
-                    startPlayback(surfaceTexture!!)
-                }
+            }
+        },
+        update = { tv ->
+            textureViewRef = tv
+            if (tv.isAvailable) {
+                updateMatrix(tv, videoState.videoWidth, videoState.videoHeight)
             }
         },
         modifier = modifier.fillMaxSize()
     )
+
+    DisposableEffect(Unit) {
+        onDispose {
+            VideoPlayerManager.detachSurface()
+        }
+    }
 }
 
 // -------------------------------------------------------------

@@ -16,6 +16,7 @@ class DeskClockApplication : Application() {
 
         // Initialize persistent crash, heartbeat and operational logging system
         CrashLogManager.initialize(this)
+        com.example.audio.AudioEqualizerManager.initContext(this)
 
         // Install global uncaught exception watchdog
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
