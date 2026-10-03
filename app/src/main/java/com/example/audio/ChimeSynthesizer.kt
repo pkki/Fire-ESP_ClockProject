@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.coroutines.coroutineContext
@@ -75,21 +76,14 @@ object ChimeSynthesizer {
     }
 
     fun stopChime() {
+        // 重要: ここでAudioTrackをreleaseしてはいけない。
+        // 再生コルーチンが同じトラックで write() 中/stop() 中にメインスレッドから release() すると
+        // Android 7 では native クラッシュ(SIGSEGV)でプロセスごと落ちる。
+        // → ジョブをキャンセルするだけにし、解放は再生コルーチン自身の finally に任せる。
         playbackJob?.cancel()
         playbackJob = null
         countdownJob?.cancel()
         countdownJob = null
-        try {
-            activeAudioTrack?.let {
-                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                    it.pause()
-                    it.flush()
-                    it.stop()
-                }
-                it.release()
-            }
-        } catch (_: Exception) {}
-        activeAudioTrack = null
     }
 
     fun stopAlarm() {
@@ -222,9 +216,8 @@ object ChimeSynthesizer {
                 activeAudioTrack = staticTrack
                 staticTrack.write(samples, 0, samples.size)
                 staticTrack.setVolume(validVolume)
-                try {
-                    AudioEqualizerManager.registerAudioSession(staticTrack.audioSessionId)
-                } catch (_: Exception) {}
+                // 短いビープ(アラーム/クリック音)ごとにEQ/BassBoost/Virtualizer/LoudnessEnhancerを
+                // 4個生成・破棄するのは audioserver への負荷が大きいので登録しない。
                 staticTrack.play()
 
                 val durationMs = (samples.size.toLong() * 1000L / SAMPLE_RATE) + 60L
@@ -234,13 +227,7 @@ object ChimeSynthesizer {
                 if (activeAudioTrack === staticTrack) {
                     activeAudioTrack = null
                 }
-                try {
-                    staticTrack?.let {
-                        AudioEqualizerManager.unregisterAudioSession(it.audioSessionId)
-                        it.stop()
-                        it.release()
-                    }
-                } catch (_: Exception) {}
+                releaseTrackSafely(staticTrack)
             }
             return
         }
@@ -271,21 +258,24 @@ object ChimeSynthesizer {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
+        val sessionId = try { audioTrack.audioSessionId } catch (_: Exception) { -1 }
         try {
             activeAudioTrack = audioTrack
             try {
-                AudioEqualizerManager.registerAudioSession(audioTrack.audioSessionId)
+                AudioEqualizerManager.registerAudioSession(sessionId)
             } catch (_: Exception) {}
             audioTrack.setVolume(validVolume)
             audioTrack.play()
 
             var offset = 0
             val chunkSize = 2048
-            while (offset < samples.size && coroutineContext.isActive) {
+            while (offset < samples.size) {
+                coroutineContext.ensureActive() // 停止要求で即座に抜ける
                 val count = minOf(chunkSize, samples.size - offset)
-                val written = audioTrack.write(samples, offset, count, AudioTrack.WRITE_BLOCKING)
+                // WRITE_BLOCKING だと他スレッドから止められず、release と衝突してクラッシュする
+                val written = audioTrack.write(samples, offset, count, AudioTrack.WRITE_NON_BLOCKING)
                 if (written < 0) break
-                offset += written
+                if (written == 0) delay(5) else offset += written
             }
 
             // Drain audio buffer
@@ -296,12 +286,23 @@ object ChimeSynthesizer {
             if (activeAudioTrack === audioTrack) {
                 activeAudioTrack = null
             }
-            try {
-                AudioEqualizerManager.unregisterAudioSession(audioTrack.audioSessionId)
-                audioTrack.stop()
-                audioTrack.release()
-            } catch (_: Exception) {}
+            releaseTrackSafely(audioTrack)
+            // エフェクトはトラック解放後に外す
+            try { AudioEqualizerManager.unregisterAudioSession(sessionId) } catch (_: Exception) {}
         }
+    }
+
+    /** トラックの停止+解放。必ず再生コルーチン(所有スレッド)からだけ呼ぶ */
+    private fun releaseTrackSafely(track: AudioTrack?) {
+        if (track == null) return
+        try {
+            if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                track.pause()
+                track.flush()
+                track.stop()
+            }
+        } catch (_: Throwable) {}
+        try { track.release() } catch (_: Throwable) {}
     }
 
     // Westminster Melody: E4, G#4, F#4, B3

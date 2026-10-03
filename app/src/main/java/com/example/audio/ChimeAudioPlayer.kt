@@ -101,20 +101,17 @@ object ChimeAudioPlayer {
     }
 
     fun stop() {
-        try {
-            mediaPlayer?.let { mp ->
-                val sessionId = try { mp.audioSessionId } catch (_: Exception) { 0 }
-                if (sessionId > 0) {
-                    AudioEqualizerManager.unregisterAudioSession(sessionId)
-                }
-                if (mp.isPlaying) {
-                    mp.stop()
-                }
-                mp.release()
-            }
-            mediaPlayer = null
-        } catch (_: Exception) {}
+        val mp = mediaPlayer
+        mediaPlayer = null
         isPlayingCustom = false
+        if (mp == null) return
+        val sessionId = try { mp.audioSessionId } catch (_: Throwable) { 0 }
+        try { mp.setOnCompletionListener(null); mp.setOnErrorListener(null); mp.setOnPreparedListener(null) } catch (_: Throwable) {}
+        try { if (mp.isPlaying) mp.stop() } catch (_: Throwable) {}
+        try { mp.release() } catch (_: Throwable) {}
+        if (sessionId > 0) {
+            try { AudioEqualizerManager.unregisterAudioSession(sessionId) } catch (_: Throwable) {}
+        }
     }
 
     fun isPlaying(): Boolean = isPlayingCustom
