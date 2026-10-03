@@ -50,15 +50,8 @@ object AudioEqualizerManager {
     fun initContext(context: Context) {
         appContext = context.applicationContext
         AudioVolumeNormalizer.init(context)
-        // Android 7 (Nougat, API 24/25) & legacy Android: Register global session 0 for system-wide DSP pipeline
-        if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.P) {
-            try {
-                registerAudioSessionInternal(0)
-                Log.i(TAG, "Android 7 global session 0 Equalizer/DSP initialized")
-            } catch (e: Throwable) {
-                Log.w(TAG, "Global session 0 init: ${e.message}")
-            }
-        }
+        // グローバル(session 0)EQは常時音声パイプラインに居座るため、ここでは作らない。
+        // EQが有効かつFLATでない時だけ syncGlobalSession0() が作成/解放する。
     }
 
     /**
@@ -421,8 +414,26 @@ object AudioEqualizerManager {
         setPreset(EqualizerPreset.FLAT)
     }
 
+    /** Android 7以下: 実際に補正が必要な間だけグローバルEQ(session 0)を保持する */
+    private fun syncGlobalSession0(state: EqualizerState) {
+        if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.P) return
+        val needed = state.isEnabled && state.getEffectiveBandGains().any { it != 0 }
+        try {
+            if (needed) {
+                if (!activeEqualizers.containsKey(0)) registerAudioSessionInternal(0)
+            } else {
+                activeEqualizers.remove(0)?.let { eq ->
+                    try { eq.enabled = false; eq.release() } catch (_: Throwable) {}
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Global session 0 sync failed: ${e.message}")
+        }
+    }
+
     private fun applyStateToAllEqualizers(state: EqualizerState) {
         synchronized(effectLock) {
+            syncGlobalSession0(state)
             activeEqualizers.values.forEach { eq ->
                 applyStateToEqualizer(eq, state)
             }

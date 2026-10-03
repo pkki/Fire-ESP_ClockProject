@@ -76,6 +76,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -589,7 +591,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Real-time synchronization of Music Player state with Web Dashboard via WebSocket
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             var lastTrackId: String? = null
             var lastIsPlaying = false
             var lastIsPaused = false
@@ -654,7 +656,11 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
         // Sync Voice Assistant settings & start wake-word listening if enabled
         viewModelScope.launch {
-            preferences.collect { pref ->
+            preferences.map { listOf(it.voiceAssistantEnabled, it.wakeWordListeningEnabled, it.wakeWordType, it.customWakeWord,
+                it.voiceTtsResponseEnabled, it.voiceTtsPitch, it.voiceTtsSpeechRate) }
+                .distinctUntilChanged()
+                .map { preferences.value }
+                .collect { pref ->
                 voiceAssistantManager.apply {
                     isEnabled = pref.voiceAssistantEnabled
                     isWakeWordListeningEnabled = pref.wakeWordListeningEnabled

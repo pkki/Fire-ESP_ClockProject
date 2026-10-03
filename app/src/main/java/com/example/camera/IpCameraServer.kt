@@ -269,6 +269,18 @@ class IpCameraServer(
             }
         }
 
+        fun sendPing() {
+            try {
+                synchronized(sendLock) {
+                    if (socket.isClosed || !socket.isConnected) return
+                    out.write(byteArrayOf(0x89.toByte(), 0))
+                    out.flush()
+                }
+            } catch (_: Exception) {
+                try { socket.close() } catch (_: Exception) {}
+            }
+        }
+
         fun sendPong(payload: ByteArray) {
             try {
                 val len = payload.size.coerceAtMost(125)
@@ -299,6 +311,7 @@ class IpCameraServer(
     }
 
     private val webSocketSessions = CopyOnWriteArrayList<WebSocketSession>()
+    private val MAX_WS_SESSIONS = 6
     private var lastBroadcastMs = 0L
     private var wsBroadcastThread: Thread? = null
 
@@ -310,6 +323,7 @@ class IpCameraServer(
     }
 
     private fun handleWebSocketSession(socket: Socket, inStream: InputStream, outStream: OutputStream, clientKey: String) {
+        var sessionRef: WebSocketSession? = null
         try {
             val acceptKey = computeWebSocketAccept(clientKey)
             val handshakeResponse = ("HTTP/1.1 101 Switching Protocols\r\n" +
@@ -320,6 +334,14 @@ class IpCameraServer(
             outStream.flush()
 
             val session = WebSocketSession(socket, outStream)
+            sessionRef = session
+            try { socket.keepAlive = true; socket.soTimeout = 30_000 } catch (_: Exception) {}
+            // 再接続を繰り返すブラウザ等で古いセッションが溜まり続けないよう上限を設ける
+            while (webSocketSessions.size >= MAX_WS_SESSIONS) {
+                val oldest = webSocketSessions.firstOrNull() ?: break
+                webSocketSessions.remove(oldest)
+                try { oldest.socket.close() } catch (_: Exception) {}
+            }
             webSocketSessions.add(session)
 
             // Push immediate snapshot of full device state upon connection
@@ -327,8 +349,17 @@ class IpCameraServer(
                 session.sendText(buildStatusJson())
             } catch (_: Exception) {}
 
+            var idleTimeouts = 0
             while (isRunning.get() && !socket.isClosed) {
-                val b0 = inStream.read()
+                val b0 = try {
+                    inStream.read()
+                } catch (_: java.net.SocketTimeoutException) {
+                    // 30秒無通信: pingで生存確認。2分応答が無ければ切断(死んだ接続の残留防止)
+                    session.sendPing()
+                    if (++idleTimeouts > 4) break
+                    continue
+                }
+                idleTimeouts = 0
                 if (b0 == -1) break
                 val b1 = inStream.read()
                 if (b1 == -1) break
@@ -399,6 +430,7 @@ class IpCameraServer(
             webSocketSessions.remove(session)
             try { socket.close() } catch (_: Exception) {}
         } catch (e: Exception) {
+            sessionRef?.let { webSocketSessions.remove(it) }
             try { socket.close() } catch (_: Exception) {}
         }
     }
@@ -530,6 +562,9 @@ class IpCameraServer(
                 dead.add(session)
             }
         }
+        // sendText は例外を内部で握りつぶすので、閉じたソケットはここで掃除する
+        val closed = webSocketSessions.filter { it.socket.isClosed }
+        if (closed.isNotEmpty()) webSocketSessions.removeAll(closed)
         if (dead.isNotEmpty()) {
             webSocketSessions.removeAll(dead)
         }

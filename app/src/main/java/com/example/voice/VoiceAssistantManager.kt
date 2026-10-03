@@ -48,6 +48,10 @@ class VoiceAssistantManager(
     private var isWakeWordMode = false
     private var isListening = false
     private var dismissHudJob: Job? = null
+    private var wakeJob: Job? = null
+    private var consecutiveFailures = 0
+    private var lastRmsUpdateMs = 0L
+    private val MAX_WAKE_FAILURES = 5
 
     // Preferences cache
     var isEnabled: Boolean = true
@@ -102,6 +106,11 @@ class VoiceAssistantManager(
      */
     fun startWakeWordListening() {
         if (!isEnabled || !isWakeWordListeningEnabled) return
+        if (consecutiveFailures >= MAX_WAKE_FAILURES) return // 失敗が続く場合は常時待受を諦める
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.RECORD_AUDIO
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) return // Fire OSなど音声認識エンジン無し
         mainHandler.post {
             ensureSpeechRecognizer()
             if (isListening) return@post
@@ -128,6 +137,7 @@ class VoiceAssistantManager(
      * Manually trigger active listening (e.g. user tapped Mic button)
      */
     fun startActiveListeningPrompt() {
+        consecutiveFailures = 0
         dismissHudJob?.cancel()
         mainHandler.post {
             stopListeningInternal()
@@ -249,7 +259,8 @@ class VoiceAssistantManager(
     }
 
     private fun startWakeWordListeningDelayed(delayMs: Long) {
-        coroutineScope.launch {
+        wakeJob?.cancel()
+        wakeJob = coroutineScope.launch {
             delay(delayMs)
             if (!_assistantState.value.isActivelyListening && isEnabled && isWakeWordListeningEnabled) {
                 startWakeWordListening()
@@ -312,6 +323,10 @@ class VoiceAssistantManager(
 
         override fun onRmsChanged(rmsdB: Float) {
             // Normalize -2dB..10dB to 0f..1f for visualizer
+            if (isWakeWordMode) return // 待受中は状態更新(=再描画)しない
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastRmsUpdateMs < 100) return
+            lastRmsUpdateMs = now
             val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
             _assistantState.value = _assistantState.value.copy(soundLevelRms = normalized)
         }
@@ -328,8 +343,19 @@ class VoiceAssistantManager(
 
             if (isWakeWordMode) {
                 // In background wake-word mode, restart smoothly after brief delay
-                if (isEnabled && isWakeWordListeningEnabled && !_assistantState.value.isActivelyListening) {
-                    startWakeWordListeningDelayed(1500)
+                if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    consecutiveFailures++
+                    // 認識器を作り直す(バインド残りによるメモリ圧迫防止)
+                    try { speechRecognizer?.destroy() } catch (_: Exception) {}
+                    speechRecognizer = null
+                    Log.w(TAG, "Wake word recognizer error=$error (failures=$consecutiveFailures)")
+                } else {
+                    consecutiveFailures = 0
+                }
+                if (isEnabled && isWakeWordListeningEnabled && !_assistantState.value.isActivelyListening
+                    && consecutiveFailures < MAX_WAKE_FAILURES) {
+                    val backoff = (1500L shl consecutiveFailures.coerceAtMost(5)).coerceAtMost(60_000L)
+                    startWakeWordListeningDelayed(backoff)
                 }
             } else {
                 // In active listening mode, if error is no match or timeout, prompt gently

@@ -341,6 +341,10 @@ object CrashLogManager {
         }
     }
 
+    private var cachedCrashCount = 0
+    private var cachedCrashFileLen = -1L
+    private var cachedCrashFileModified = -1L
+
     fun getDiagnosticsReport(): DiagnosticsReport {
         val ctx = appContext
         val prefs = ctx?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -366,8 +370,17 @@ object CrashLogManager {
 
         val crashLogFile = ctx?.let { File(it.filesDir, CRASH_LOG_FILE) }
         val crashCount = if (crashLogFile != null && crashLogFile.exists()) {
-            val text = crashLogFile.readText()
-            text.split("CRASH DETECTED AT:").size - 1
+            // WebSocketの1秒ごとのステータス配信から呼ばれるため、ファイルが変化した時だけ再計算する
+            val len = crashLogFile.length()
+            val mod = crashLogFile.lastModified()
+            synchronized(this) {
+                if (len != cachedCrashFileLen || mod != cachedCrashFileModified) {
+                    cachedCrashCount = crashLogFile.readText().split("CRASH DETECTED AT:").size - 1
+                    cachedCrashFileLen = len
+                    cachedCrashFileModified = mod
+                }
+                cachedCrashCount
+            }
         } else {
             0
         }
