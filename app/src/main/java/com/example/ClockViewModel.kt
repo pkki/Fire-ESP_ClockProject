@@ -590,8 +590,31 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
         // Real-time synchronization of Music Player state with Web Dashboard via WebSocket
         viewModelScope.launch {
-            MusicPlayerManager.playerState.collect {
-                ipCameraServer?.broadcastMusicPlayerUpdate()
+            var lastTrackId: String? = null
+            var lastIsPlaying = false
+            var lastIsPaused = false
+            var lastRepeatMode: MusicRepeatMode? = null
+            var lastVol = -1f
+            var lastBroadcastPosMs = 0L
+
+            MusicPlayerManager.playerState.collect { state ->
+                val trackChanged = state.currentTrack?.id != lastTrackId
+                val playChanged = state.isPlaying != lastIsPlaying
+                val pauseChanged = state.isPaused != lastIsPaused
+                val repeatChanged = state.repeatMode != lastRepeatMode
+                val volChanged = state.volume != lastVol
+                val now = System.currentTimeMillis()
+                val posAdvanced = (now - lastBroadcastPosMs) >= 1000L
+
+                if (trackChanged || playChanged || pauseChanged || repeatChanged || volChanged || posAdvanced) {
+                    lastTrackId = state.currentTrack?.id
+                    lastIsPlaying = state.isPlaying
+                    lastIsPaused = state.isPaused
+                    lastRepeatMode = state.repeatMode
+                    lastVol = state.volume
+                    lastBroadcastPosMs = now
+                    ipCameraServer?.broadcastMusicPlayerUpdate()
+                }
             }
         }
 

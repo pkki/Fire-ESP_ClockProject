@@ -526,6 +526,7 @@ fun DeskClockMainScreen(
                 activeVideo = activeBackgroundVideo,
                 playingAudioPath = playingAudioPath,
                 customAudioList = customAudioList,
+                musicPlayerState = musicPlayerState,
                 accentColor = preferences.colorPalette.primary,
                 onDismissVideo = { viewModel.dismissBackgroundVideo() },
                 onDismissAudio = { viewModel.stopAudioPlayback() },

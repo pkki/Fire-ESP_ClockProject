@@ -93,30 +93,34 @@ object MusicPlayerManager {
         volume: Float = _playerState.value.volume,
         repeatMode: MusicRepeatMode = _playerState.value.repeatMode
     ) {
-        val activePlaylist = if (playlist.isNotEmpty()) playlist else listOf(track)
-        val idx = activePlaylist.indexOfFirst { it.id == track.id }.let { if (it >= 0) it else 0 }
+        scope.launch(Dispatchers.Main) {
+            val activePlaylist = if (playlist.isNotEmpty()) playlist else listOf(track)
+            val idx = activePlaylist.indexOfFirst { it.id == track.id }.let { if (it >= 0) it else 0 }
 
-        startPlaybackInternal(
-            track = track,
-            playlist = activePlaylist,
-            index = idx,
-            volume = volume,
-            repeatMode = repeatMode
-        )
+            startPlaybackInternal(
+                track = track,
+                playlist = activePlaylist,
+                index = idx,
+                volume = volume,
+                repeatMode = repeatMode
+            )
+        }
     }
 
     fun playAtIndex(index: Int) {
-        val list = _playerState.value.playlist
-        if (list.isEmpty()) return
-        val validIndex = index.coerceIn(0, list.lastIndex)
-        val track = list[validIndex]
-        startPlaybackInternal(
-            track = track,
-            playlist = list,
-            index = validIndex,
-            volume = _playerState.value.volume,
-            repeatMode = _playerState.value.repeatMode
-        )
+        scope.launch(Dispatchers.Main) {
+            val list = _playerState.value.playlist
+            if (list.isEmpty()) return@launch
+            val validIndex = index.coerceIn(0, list.lastIndex)
+            val track = list[validIndex]
+            startPlaybackInternal(
+                track = track,
+                playlist = list,
+                index = validIndex,
+                volume = _playerState.value.volume,
+                repeatMode = _playerState.value.repeatMode
+            )
+        }
     }
 
     private fun startPlaybackInternal(
@@ -145,6 +149,22 @@ object MusicPlayerManager {
 
         val fallbackDur = probeDuration(track.filePath)
 
+        // Immediately update player state so the device HUD, Dialog, and Web Dashboard
+        // broadcast reflect the playing state and current track instantly
+        _playerState.value = _playerState.value.copy(
+            isPlaying = true,
+            isPaused = false,
+            currentTrack = track,
+            currentPositionMs = 0L,
+            durationMs = fallbackDur,
+            volume = volume,
+            repeatMode = repeatMode,
+            playlist = playlist,
+            currentIndex = index
+        )
+        onTrackChanged?.invoke(track)
+        onPlaybackStateChanged?.invoke(true, track)
+
         try {
             mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
@@ -166,9 +186,14 @@ object MusicPlayerManager {
                 setOnPreparedListener { mp ->
                     try {
                         val duration = mp.duration.toLong().let { if (it > 0) it else fallbackDur }
+
+                        // Start playback first so AudioFlinger track is established on Android 7
+                        mp.start()
+
                         val sessionId = mp.audioSessionId
                         if (sessionId > 0) {
                             AudioEqualizerManager.registerAudioSession(sessionId)
+                            AudioEqualizerManager.reapplyToSession(sessionId)
                         }
 
                         // Apply playback speed
@@ -178,7 +203,6 @@ object MusicPlayerManager {
                             } catch (_: Exception) {}
                         }
 
-                        mp.start()
                         _playerState.value = _playerState.value.copy(
                             isPlaying = true,
                             isPaused = false,
@@ -223,65 +247,73 @@ object MusicPlayerManager {
     }
 
     fun togglePlayPause() {
-        val mp = mediaPlayer
-        if (mp != null) {
-            if (mp.isPlaying) {
-                pause()
+        scope.launch(Dispatchers.Main) {
+            val mp = mediaPlayer
+            if (mp != null) {
+                if (mp.isPlaying) {
+                    pause()
+                } else {
+                    resume()
+                }
             } else {
                 resume()
             }
-        } else {
-            resume()
         }
     }
 
     fun pause() {
-        try {
-            if (mediaPlayer?.isPlaying == true) {
-                mediaPlayer?.pause()
-                val pos = mediaPlayer?.currentPosition?.toLong() ?: _playerState.value.currentPositionMs
-                stopProgressTicker()
-                _playerState.value = _playerState.value.copy(
-                    isPlaying = false,
-                    isPaused = true,
-                    currentPositionMs = pos
-                )
-                onPlaybackStateChanged?.invoke(false, _playerState.value.currentTrack)
+        scope.launch(Dispatchers.Main) {
+            try {
+                if (mediaPlayer?.isPlaying == true) {
+                    mediaPlayer?.pause()
+                    val pos = mediaPlayer?.currentPosition?.toLong() ?: _playerState.value.currentPositionMs
+                    stopProgressTicker()
+                    _playerState.value = _playerState.value.copy(
+                        isPlaying = false,
+                        isPaused = true,
+                        currentPositionMs = pos
+                    )
+                    onPlaybackStateChanged?.invoke(false, _playerState.value.currentTrack)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error pausing playback", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error pausing playback", e)
         }
     }
 
     fun resume() {
-        VideoPlayerManager.stop()
-        val mp = mediaPlayer
-        if (mp != null && _playerState.value.isPaused) {
-            try {
-                mp.start()
-                _playerState.value = _playerState.value.copy(
-                    isPlaying = true,
-                    isPaused = false
-                )
-                startProgressTicker()
-                onPlaybackStateChanged?.invoke(true, _playerState.value.currentTrack)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error resuming playback", e)
+        scope.launch(Dispatchers.Main) {
+            VideoPlayerManager.stop()
+            val mp = mediaPlayer
+            if (mp != null && _playerState.value.isPaused) {
+                try {
+                    mp.start()
+                    _playerState.value = _playerState.value.copy(
+                        isPlaying = true,
+                        isPaused = false
+                    )
+                    startProgressTicker()
+                    onPlaybackStateChanged?.invoke(true, _playerState.value.currentTrack)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error resuming playback", e)
+                    _playerState.value.currentTrack?.let { track ->
+                        playTrack(track, _playerState.value.playlist)
+                    }
+                }
+            } else if (_playerState.value.currentTrack != null) {
                 _playerState.value.currentTrack?.let { track ->
                     playTrack(track, _playerState.value.playlist)
                 }
+            } else if (_playerState.value.playlist.isNotEmpty()) {
+                playAtIndex(0)
             }
-        } else if (_playerState.value.currentTrack != null) {
-            _playerState.value.currentTrack?.let { track ->
-                playTrack(track, _playerState.value.playlist)
-            }
-        } else if (_playerState.value.playlist.isNotEmpty()) {
-            playAtIndex(0)
         }
     }
 
     fun stop() {
-        stopInternal(keepTrack = false)
+        scope.launch(Dispatchers.Main) {
+            stopInternal(keepTrack = false)
+        }
     }
 
     private fun stopInternal(keepTrack: Boolean) {

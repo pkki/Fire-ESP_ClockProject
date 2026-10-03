@@ -400,6 +400,12 @@ class IpCameraServer(
                         onPlayMusic(CustomAudioItem(id = id.ifBlank { "custom_${System.currentTimeMillis()}" }, name = fileName, filePath = filePath))
                     }
                     broadcastMusicPlayerUpdate()
+                    Thread({
+                        try {
+                            Thread.sleep(350)
+                            broadcastMusicPlayerUpdate()
+                        } catch (_: Exception) {}
+                    }).start()
                 }
                 "music_stop" -> {
                     onStopMusic()
@@ -1097,6 +1103,12 @@ class IpCameraServer(
                         onPlayMusic(CustomAudioItem(id = id.ifBlank { "custom_${System.currentTimeMillis()}" }, name = fileName, filePath = filePath))
                     }
                     broadcastMusicPlayerUpdate()
+                    Thread({
+                        try {
+                            Thread.sleep(350)
+                            broadcastMusicPlayerUpdate()
+                        } catch (_: Exception) {}
+                    }).start()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
@@ -3591,6 +3603,13 @@ class IpCameraServer(
         setInterval(updateClock, 1000);
         updateClock();
 
+        // Fallback polling (every 2.5s) if WebSocket is disconnected or tab woke up
+        setInterval(function() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                fetchStatus();
+            }
+        }, 2500);
+
         function fetchStatus() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ action: 'get_status' }));
@@ -4089,11 +4108,14 @@ class IpCameraServer(
                     body: JSON.stringify(data || {})
                 }).then(function() { fetchStatus(); });
             }
+            setTimeout(fetchStatus, 350);
         }
 
         function playCustomMusic(id, path) {
             musicAction('play', { id: id, filePath: decodeURIComponent(path) });
             showToast('Starting music playback on device...');
+            setTimeout(fetchStatus, 300);
+            setTimeout(fetchStatus, 800);
         }
 
         function onMusicVolumeInput(val) {

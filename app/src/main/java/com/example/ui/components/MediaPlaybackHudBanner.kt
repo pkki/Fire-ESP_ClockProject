@@ -55,6 +55,7 @@ fun MediaPlaybackHudBanner(
     activeVideo: ActiveBackgroundVideo?,
     playingAudioPath: String?,
     customAudioList: List<CustomAudioItem>,
+    musicPlayerState: com.example.audio.MusicPlayerState? = null,
     accentColor: Color = Color(0xFF00E5FF),
     onDismissVideo: () -> Unit,
     onDismissAudio: () -> Unit,
@@ -63,7 +64,7 @@ fun MediaPlaybackHudBanner(
     modifier: Modifier = Modifier
 ) {
     val isVideoPlaying = activeVideo != null && activeVideo.videoSourceType != ChimeVideoSourceType.NONE
-    val isAudioPlaying = !playingAudioPath.isNullOrBlank()
+    val isAudioPlaying = !playingAudioPath.isNullOrBlank() || (musicPlayerState?.isPlaying == true && musicPlayerState.currentTrack != null)
     val isMediaActive = isVideoPlaying || isAudioPlaying
 
     AnimatedVisibility(
@@ -79,8 +80,8 @@ fun MediaPlaybackHudBanner(
                     ?: "背景動画"
             }
             isAudioPlaying -> {
-                val foundItem = customAudioList.find { it.filePath == playingAudioPath }
-                foundItem?.name
+                musicPlayerState?.currentTrack?.name
+                    ?: customAudioList.find { it.filePath == playingAudioPath }?.name
                     ?: try {
                         File(playingAudioPath ?: "").nameWithoutExtension.ifEmpty { "カスタム音声" }
                     } catch (_: Exception) {

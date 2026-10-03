@@ -258,9 +258,16 @@ fun MusicPlayerDialog(
     var videoSeekProgress by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(videoState.currentVideo) {
-        if (videoState.currentVideo != null) {
+        if (videoState.currentVideo != null && videoState.isPlaying) {
             activeVideoItem = videoState.currentVideo
             isVideoMode = true
+        }
+    }
+
+    LaunchedEffect(playerState.isPlaying, playerState.currentTrack) {
+        if (playerState.isPlaying && playerState.currentTrack != null) {
+            isVideoMode = false
+            activeVideoItem = null
         }
     }
 

@@ -45,8 +45,9 @@ object AudioEqualizerManager {
         if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.P) {
             try {
                 registerAudioSessionInternal(0)
+                Log.i(TAG, "Android 7 global session 0 Equalizer/DSP initialized")
             } catch (e: Exception) {
-                Log.d(TAG, "Global session 0 init: ${e.message}")
+                Log.w(TAG, "Global session 0 init: ${e.message}")
             }
         }
     }
@@ -115,12 +116,20 @@ object AudioEqualizerManager {
             // If already registered, update settings and return
             activeEqualizers[sessionId]?.let { eq ->
                 applyStateToEqualizer(eq, _equalizerState.value)
+                reapplyToSession(sessionId)
                 return
             }
 
-            // Create Equalizer with priority 1000 (preempts low-priority defaults across Android 7+ HALs)
-            val eq = Equalizer(1000, sessionId).apply {
-                enabled = _equalizerState.value.isEnabled
+            // Create Equalizer with standard application priority 0 (fallback to 1000 if 0 fails)
+            val eq = try {
+                Equalizer(0, sessionId).apply {
+                    enabled = _equalizerState.value.isEnabled
+                }
+            } catch (e0: Exception) {
+                Log.w(TAG, "Equalizer(0, $sessionId) failed: ${e0.message}, trying priority 1000")
+                Equalizer(1000, sessionId).apply {
+                    enabled = _equalizerState.value.isEnabled
+                }
             }
 
             // Read supported center frequencies
@@ -146,9 +155,13 @@ object AudioEqualizerManager {
             activeEqualizers[sessionId] = eq
             applyStateToEqualizer(eq, _equalizerState.value)
 
-            // Setup hardware BassBoost (priority 1000)
+            // Setup hardware BassBoost (priority 0, fallback 1000)
             try {
-                val bb = BassBoost(1000, sessionId)
+                val bb = try {
+                    BassBoost(0, sessionId)
+                } catch (_: Exception) {
+                    BassBoost(1000, sessionId)
+                }
                 val curState = _equalizerState.value
                 val bbEnabled = curState.isEnabled && curState.bassBoostStrength > 0
                 bb.enabled = bbEnabled
@@ -160,9 +173,13 @@ object AudioEqualizerManager {
                 Log.d(TAG, "BassBoost not supported on session $sessionId: ${e.message}")
             }
 
-            // Setup hardware Virtualizer (priority 1000)
+            // Setup hardware Virtualizer (priority 0, fallback 1000)
             try {
-                val virt = Virtualizer(1000, sessionId)
+                val virt = try {
+                    Virtualizer(0, sessionId)
+                } catch (_: Exception) {
+                    Virtualizer(1000, sessionId)
+                }
                 val curState = _equalizerState.value
                 val virtEnabled = curState.isEnabled && curState.virtualizerStrength > 0
                 virt.enabled = virtEnabled
@@ -174,7 +191,7 @@ object AudioEqualizerManager {
                 Log.d(TAG, "Virtualizer not supported on session $sessionId: ${e.message}")
             }
 
-            Log.d(TAG, "Audio session $sessionId registered to Equalizer (active count: ${activeEqualizers.size})")
+            Log.i(TAG, "Audio session $sessionId registered to Equalizer (active count: ${activeEqualizers.size}, enabled=${eq.enabled})")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to create Equalizer for session $sessionId: ${e.message}")
         }
@@ -338,6 +355,34 @@ object AudioEqualizerManager {
         }
     }
 
+    fun reapplyToSession(sessionId: Int) {
+        activeEqualizers[sessionId]?.let { eq ->
+            applyStateToEqualizer(eq, _equalizerState.value)
+        }
+        activeBassBoosts[sessionId]?.let { bb ->
+            try {
+                val state = _equalizerState.value
+                val bbEnabled = state.isEnabled && state.bassBoostStrength > 0
+                bb.enabled = false
+                if (bb.strengthSupported && bbEnabled) {
+                    bb.setStrength(state.bassBoostStrength.toShort())
+                }
+                bb.enabled = bbEnabled
+            } catch (_: Exception) {}
+        }
+        activeVirtualizers[sessionId]?.let { virt ->
+            try {
+                val state = _equalizerState.value
+                val virtEnabled = state.isEnabled && state.virtualizerStrength > 0
+                virt.enabled = false
+                if (virt.strengthSupported && virtEnabled) {
+                    virt.setStrength(state.virtualizerStrength.toShort())
+                }
+                virt.enabled = virtEnabled
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun applyStateToEqualizer(eq: Equalizer, state: EqualizerState) {
         try {
             val numBands = try { eq.numberOfBands.toInt() } catch (_: Exception) { 0 }
@@ -348,8 +393,10 @@ object AudioEqualizerManager {
 
             val effectiveGains = state.getEffectiveBandGains()
 
-            // Ensure equalizer effect is enabled
-            eq.enabled = state.isEnabled
+            // Toggle enabled off to force hardware DSP to accept and reload new coefficients
+            try {
+                eq.enabled = false
+            } catch (_: Exception) {}
 
             // Direct 1:1 band index mapping to guarantee every hardware band receives its exact level
             for (i in 0 until numBands) {
@@ -370,8 +417,10 @@ object AudioEqualizerManager {
                 }
             }
 
-            // Re-confirm enabled state
+            // Confirm enabled state on hardware effect
             eq.enabled = state.isEnabled
+            val hasControl = try { eq.hasControl() } catch (_: Exception) { true }
+            Log.d(TAG, "Equalizer applied: enabled=${state.isEnabled}, hasControl=$hasControl, bands=$numBands")
         } catch (e: Exception) {
             Log.w(TAG, "Error applying state to Equalizer: ${e.message}")
         }
