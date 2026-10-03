@@ -491,6 +491,33 @@ object WebDashboardMusic {
                     </div>
                 </div>
 
+                <!-- 3.75 Auto Volume Normalization & Loudness Maximizer -->
+                <div style="margin-top: 16px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 14px 18px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                        <div>
+                            <div style="font-weight:700; color:#10b981; font-size:0.92rem; display:flex; align-items:center; gap:8px;">
+                                <span>🔊 自動音量ノーマライズ (最大音量化)</span>
+                                <span id="webAutoVolumeBadge" style="font-size:0.7rem; padding:2px 8px; border-radius:10px; background:#10b981; color:#000; font-weight:700;">AUTO MAX</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:3px;">
+                                音量の小さい曲や録音レベルの低いファイルを自動解析し、音割れ（クリッピング）を起こさずクリアな最大音量まで引き上げて均一再生します（Loudness Enhancer連携）
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <label class="switch">
+                                <input type="checkbox" id="webAutoVolumeToggle" onchange="toggleAutoVolumeDirect(this.checked)">
+                                <span class="slider round"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <div id="webLoudnessBoostControl" style="margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                        <span style="font-size:0.8rem; color:#fff;">⚡ 最大音量ブースト強度:</span>
+                        <input type="range" class="seek-slider" min="0" max="1200" step="50" value="400" id="webLoudnessBoostSlider"
+                               style="flex:1; max-width:280px;" oninput="onLoudnessBoostInput(this.value)" onchange="onLoudnessBoostChange(this.value)">
+                        <span id="webLoudnessBoostGainLabel" style="font-family:var(--font-mono); font-size:0.85rem; color:#10b981; font-weight:700; min-width:60px; text-align:right;">+4.0 dB</span>
+                    </div>
+                </div>
+
                 <!-- 4. Earphone Jack Anti-Noise Keep-Alive Console (User Requested) -->
                 <div style="margin-top: 16px; background: rgba(0, 229, 255, 0.06); border: 1px solid rgba(0, 229, 255, 0.25); border-radius: 12px; padding: 14px 18px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -726,6 +753,25 @@ object WebDashboardMusic {
                 }
             }
 
+            // Auto Volume Normalization & Loudness Maximizer UI
+            var avToggle = document.getElementById('webAutoVolumeToggle');
+            var lbSlider = document.getElementById('webLoudnessBoostSlider');
+            var lbGain = document.getElementById('webLoudnessBoostGainLabel');
+            var lbControl = document.getElementById('webLoudnessBoostControl');
+            if (avToggle && !avToggle.matches(':active')) {
+                avToggle.checked = !!eq.autoVolumeNormalization;
+            }
+            if (lbControl) {
+                lbControl.style.display = eq.autoVolumeNormalization ? 'flex' : 'none';
+            }
+            if (lbSlider && !lbSlider.matches(':active')) {
+                lbSlider.value = eq.loudnessBoostGainMb !== undefined ? eq.loudnessBoostGainMb : 400;
+            }
+            if (lbGain) {
+                var boostMb = eq.loudnessBoostGainMb !== undefined ? eq.loudnessBoostGainMb : 400;
+                lbGain.innerText = '+' + (boostMb / 100).toFixed(1) + ' dB';
+            }
+
             // Anti-Noise Silence Keep-Alive UI (User Requested)
             if (data.antiNoiseSilence) {
                 var an = data.antiNoiseSilence;
@@ -821,6 +867,44 @@ object WebDashboardMusic {
                 showToast('イコライザーを標準 (FLAT) にリセットしました');
                 refreshData();
             });
+        }
+
+        function toggleAutoVolumeDirect(enabled) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'eq_auto_volume', enabled: enabled }));
+            } else {
+                fetch('/api/equalizer/auto_volume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: enabled })
+                }).then(function() {
+                    refreshData();
+                });
+            }
+            showToast(enabled ? '自動音量ノーマライズ（最大音量化）をONにしました' : '自動音量ノーマライズをOFFにしました');
+        }
+
+        function onLoudnessBoostInput(val) {
+            var lbGain = document.getElementById('webLoudnessBoostGainLabel');
+            if (lbGain) {
+                var v = parseInt(val, 10);
+                lbGain.innerText = '+' + (v / 100).toFixed(1) + ' dB';
+            }
+        }
+
+        function onLoudnessBoostChange(val) {
+            var gain = parseInt(val, 10);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ action: 'eq_loudness_boost', gainMb: gain }));
+            } else {
+                fetch('/api/equalizer/loudness_boost', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ gainMb: gain })
+                }).then(function() {
+                    refreshData();
+                });
+            }
         }
 
         function renderMusicTabPlaylist(data) {

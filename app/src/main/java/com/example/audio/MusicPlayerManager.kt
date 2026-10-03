@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import kotlin.random.Random
@@ -176,11 +177,22 @@ object MusicPlayerManager {
                 FileInputStream(file).use { fis ->
                     setDataSource(fis.fd)
                 }
-                setVolume(volume, volume)
+
+                val autoNorm = AudioEqualizerManager.equalizerState.value.autoVolumeNormalization
+                val initialMultiplier = if (autoNorm) AudioVolumeNormalizer.getTrackGainMultiplier(track.filePath) else 1.0f
+                val effectiveVol = (volume * initialMultiplier).coerceIn(0f, 1f)
+                setVolume(effectiveVol, effectiveVol)
 
                 val initialSessionId = audioSessionId
                 if (initialSessionId > 0) {
                     AudioEqualizerManager.registerAudioSession(initialSessionId)
+                    if (autoNorm) {
+                        val boostMb = AudioVolumeNormalizer.calculateLoudnessBoostMb(
+                            track.filePath,
+                            AudioEqualizerManager.equalizerState.value.loudnessBoostGainMb
+                        )
+                        AudioEqualizerManager.applyTrackLoudnessBoost(initialSessionId, boostMb)
+                    }
                 }
 
                 setOnPreparedListener { mp ->
@@ -194,6 +206,34 @@ object MusicPlayerManager {
                         if (sessionId > 0) {
                             AudioEqualizerManager.registerAudioSession(sessionId)
                             AudioEqualizerManager.reapplyToSession(sessionId)
+                            if (AudioEqualizerManager.equalizerState.value.autoVolumeNormalization) {
+                                val boostMb = AudioVolumeNormalizer.calculateLoudnessBoostMb(
+                                    track.filePath,
+                                    AudioEqualizerManager.equalizerState.value.loudnessBoostGainMb
+                                )
+                                AudioEqualizerManager.applyTrackLoudnessBoost(sessionId, boostMb)
+                            }
+                        }
+
+                        // Background peak analysis to fine-tune auto gain normalization
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                AudioVolumeNormalizer.analyzeTrackPeakAsync(track.filePath)
+                                if (AudioEqualizerManager.equalizerState.value.autoVolumeNormalization && sessionId > 0) {
+                                    val updatedBoost = AudioVolumeNormalizer.calculateLoudnessBoostMb(
+                                        track.filePath,
+                                        AudioEqualizerManager.equalizerState.value.loudnessBoostGainMb
+                                    )
+                                    AudioEqualizerManager.applyTrackLoudnessBoost(sessionId, updatedBoost)
+                                    val updatedMult = AudioVolumeNormalizer.getTrackGainMultiplier(track.filePath)
+                                    val updatedVol = (_playerState.value.volume * updatedMult).coerceIn(0f, 1f)
+                                    withContext(Dispatchers.Main) {
+                                        try {
+                                            mediaPlayer?.setVolume(updatedVol, updatedVol)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            } catch (_: Exception) {}
                         }
 
                         // Apply playback speed
@@ -432,7 +472,11 @@ object MusicPlayerManager {
         val clamped = volume.coerceIn(0f, 1f)
         _playerState.value = _playerState.value.copy(volume = clamped)
         try {
-            mediaPlayer?.setVolume(clamped, clamped)
+            val trackPath = _playerState.value.currentTrack?.filePath
+            val autoNorm = AudioEqualizerManager.equalizerState.value.autoVolumeNormalization
+            val mult = if (autoNorm && trackPath != null) AudioVolumeNormalizer.getTrackGainMultiplier(trackPath) else 1.0f
+            val effectiveVol = (clamped * mult).coerceIn(0f, 1f)
+            mediaPlayer?.setVolume(effectiveVol, effectiveVol)
         } catch (e: Exception) {
             Log.e(TAG, "Error setting volume $clamped", e)
         }

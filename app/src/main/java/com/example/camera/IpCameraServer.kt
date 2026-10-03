@@ -118,6 +118,8 @@ class IpCameraServer(
     private val onSetEqualizerPreset: (com.example.model.EqualizerPreset) -> Unit = { com.example.audio.AudioEqualizerManager.setPreset(it) },
     private val onSetEqualizerBassCutMode: (com.example.model.BassCutMode) -> Unit = { com.example.audio.AudioEqualizerManager.setBassCutMode(it) },
     private val onSetEqualizerBandGain: (Int, Int) -> Unit = { idx, gain -> com.example.audio.AudioEqualizerManager.setBandGain(idx, gain) },
+    private val onSetAutoVolumeNormalization: (Boolean) -> Unit = { com.example.audio.AudioEqualizerManager.setAutoVolumeNormalization(it) },
+    private val onSetLoudnessBoostGainMb: (Int) -> Unit = { com.example.audio.AudioEqualizerManager.setLoudnessBoostGainMb(it) },
     private val onResetEqualizer: () -> Unit = { com.example.audio.AudioEqualizerManager.resetToFlat() },
     private val onSetAntiNoiseSilence: (Boolean) -> Unit = { if (it) com.example.audio.SilentAudioKeepAliveManager.start() else com.example.audio.SilentAudioKeepAliveManager.stop() }
 ) {
@@ -219,41 +221,66 @@ class IpCameraServer(
     private val activeAudioClients = AtomicInteger(0)
     private val currentAudioLevel = AtomicInteger(0)
 
+    private var cachedAppVersionName: String = "1.0.0"
+    private var cachedAppVersionCode: Long = 1L
+    private var cachedPackageName: String = "com.example"
+
     // Active WebSocket sessions for real-time dashboard updates (User Requested: web socket使って)
     class WebSocketSession(val socket: Socket, val out: OutputStream) {
+        private val sendLock = Any()
+
         fun sendText(text: String) {
-            synchronized(out) {
-                val bytes = text.toByteArray(Charsets.UTF_8)
-                val len = bytes.size
-                out.write(0x81) // FIN=1, opcode=1 (text)
-                when {
+            try {
+                val payload = text.toByteArray(Charsets.UTF_8)
+                val len = payload.size
+                val header = when {
                     len <= 125 -> {
-                        out.write(len)
+                        byteArrayOf(0x81.toByte(), len.toByte())
                     }
                     len <= 65535 -> {
-                        out.write(126)
-                        out.write((len shr 8) and 0xFF)
-                        out.write(len and 0xFF)
+                        byteArrayOf(
+                            0x81.toByte(),
+                            126.toByte(),
+                            ((len shr 8) and 0xFF).toByte(),
+                            (len and 0xFF).toByte()
+                        )
                     }
                     else -> {
-                        out.write(127)
+                        val h = ByteArray(10)
+                        h[0] = 0x81.toByte()
+                        h[1] = 127.toByte()
                         for (i in 7 downTo 0) {
-                            out.write(((len.toLong() shr (i * 8)) and 0xFF).toInt())
+                            h[2 + (7 - i)] = (((len.toLong() shr (i * 8)) and 0xFF).toByte())
                         }
+                        h
                     }
                 }
-                out.write(bytes)
-                out.flush()
+
+                synchronized(sendLock) {
+                    if (socket.isClosed || !socket.isConnected) return
+                    val fullFrame = ByteArray(header.size + payload.size)
+                    System.arraycopy(header, 0, fullFrame, 0, header.size)
+                    System.arraycopy(payload, 0, fullFrame, header.size, payload.size)
+                    out.write(fullFrame)
+                    out.flush()
+                }
+            } catch (_: Exception) {
+                try { socket.close() } catch (_: Exception) {}
             }
         }
 
         fun sendPong(payload: ByteArray) {
             try {
-                synchronized(out) {
-                    out.write(0x8A) // FIN=1, opcode=10 (pong)
-                    val len = payload.size.coerceAtMost(125)
-                    out.write(len)
-                    if (len > 0) out.write(payload, 0, len)
+                val len = payload.size.coerceAtMost(125)
+                val frame = ByteArray(2 + len)
+                frame[0] = 0x8A.toByte()
+                frame[1] = len.toByte()
+                if (len > 0) {
+                    System.arraycopy(payload, 0, frame, 2, len)
+                }
+                synchronized(sendLock) {
+                    if (socket.isClosed || !socket.isConnected) return
+                    out.write(frame)
                     out.flush()
                 }
             } catch (_: Exception) {}
@@ -261,9 +288,10 @@ class IpCameraServer(
 
         fun sendClose() {
             try {
-                synchronized(out) {
-                    out.write(0x88) // FIN=1, opcode=8 (close)
-                    out.write(0)
+                val frame = byteArrayOf(0x88.toByte(), 0.toByte())
+                synchronized(sendLock) {
+                    if (socket.isClosed || !socket.isConnected) return
+                    out.write(frame)
                     out.flush()
                 }
             } catch (_: Exception) {}
@@ -445,6 +473,43 @@ class IpCameraServer(
                     onSetMusicRepeatMode(mode)
                     broadcastMusicPlayerUpdate()
                 }
+                "eq_auto_volume" -> {
+                    val en = obj.optBoolean("enabled", true)
+                    onSetAutoVolumeNormalization(en)
+                    broadcastMusicPlayerUpdate()
+                }
+                "eq_loudness_boost" -> {
+                    val gain = obj.optInt("gainMb", 400)
+                    onSetLoudnessBoostGainMb(gain)
+                    broadcastMusicPlayerUpdate()
+                }
+                "eq_enabled" -> {
+                    val en = obj.optBoolean("enabled", true)
+                    onSetEqualizerEnabled(en)
+                    broadcastMusicPlayerUpdate()
+                }
+                "eq_preset" -> {
+                    val pStr = obj.optString("preset", "FLAT")
+                    val p = try { com.example.model.EqualizerPreset.valueOf(pStr) } catch (_: Exception) { com.example.model.EqualizerPreset.FLAT }
+                    onSetEqualizerPreset(p)
+                    broadcastMusicPlayerUpdate()
+                }
+                "eq_basscut" -> {
+                    val bStr = obj.optString("mode", "OFF")
+                    val m = try { com.example.model.BassCutMode.valueOf(bStr) } catch (_: Exception) { com.example.model.BassCutMode.OFF }
+                    onSetEqualizerBassCutMode(m)
+                    broadcastMusicPlayerUpdate()
+                }
+                "eq_band" -> {
+                    val idx = obj.optInt("index", 0)
+                    val gain = obj.optInt("gain", 0)
+                    onSetEqualizerBandGain(idx, gain)
+                    broadcastMusicPlayerUpdate()
+                }
+                "eq_reset" -> {
+                    onResetEqualizer()
+                    broadcastMusicPlayerUpdate()
+                }
                 "ir_send" -> {
                     val btnId = obj.optString("id")
                     if (btnId.isNotEmpty()) {
@@ -489,6 +554,17 @@ class IpCameraServer(
     fun start(): Boolean {
         if (isRunning.get()) return true
         return try {
+            try {
+                val pInfo = context?.packageManager?.getPackageInfo(context.packageName, 0)
+                cachedAppVersionName = pInfo?.versionName ?: "1.0.0"
+                cachedAppVersionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pInfo?.longVersionCode ?: 1L
+                } else {
+                    @Suppress("DEPRECATION") pInfo?.versionCode?.toLong() ?: 1L
+                }
+                cachedPackageName = context?.packageName ?: "com.example"
+            } catch (_: Exception) {}
+
             serverSocket = ServerSocket().apply {
                 reuseAddress = true
                 bind(InetSocketAddress(port))
@@ -633,7 +709,8 @@ class IpCameraServer(
     private fun handleClient(socket: Socket) {
         try {
             val rawIn = socket.getInputStream()
-            val out = BufferedOutputStream(socket.getOutputStream())
+            val rawOut = socket.getOutputStream()
+            val out = BufferedOutputStream(rawOut)
 
             // Read request line and headers
             val headerBytes = ByteArrayOutputStream()
@@ -688,7 +765,7 @@ class IpCameraServer(
             val isWsUpgrade = headers["upgrade"]?.equals("websocket", ignoreCase = true) == true || path == "/ws" || path == "/api/ws"
             val wsKey = headers["sec-websocket-key"]
             if (isWsUpgrade && wsKey != null) {
-                handleWebSocketSession(socket, rawIn, out, wsKey)
+                handleWebSocketSession(socket, rawIn, rawOut, wsKey)
                 return
             }
 
@@ -1238,6 +1315,26 @@ class IpCameraServer(
                     val idx = obj.optInt("index", 0)
                     val gain = obj.optInt("gain", 0)
                     onSetEqualizerBandGain(idx, gain)
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/equalizer/auto_volume" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val en = obj.optBoolean("enabled", true)
+                    onSetAutoVolumeNormalization(en)
+                    broadcastMusicPlayerUpdate()
+                    sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
+                }
+
+                method == "POST" && path == "/api/equalizer/loudness_boost" -> {
+                    val bodyBytes = readExactBytes(rawIn, contentLength)
+                    val bodyStr = String(bodyBytes, Charsets.UTF_8)
+                    val obj = JSONObject(bodyStr)
+                    val gain = obj.optInt("gainMb", 400)
+                    onSetLoudnessBoostGainMb(gain)
+                    broadcastMusicPlayerUpdate()
                     sendResponse(out, 200, "application/json", "{\"success\":true}".toByteArray())
                 }
 
@@ -2003,15 +2100,9 @@ class IpCameraServer(
             put("crashLogCount", report.crashLogCount)
             put("totalLogCount", report.totalLogCount)
 
-            val pInfo = try { context?.packageManager?.getPackageInfo(context.packageName, 0) } catch (_: Exception) { null }
-            put("appVersionName", pInfo?.versionName ?: "1.0.0")
-            val vCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                pInfo?.longVersionCode ?: 1L
-            } else {
-                @Suppress("DEPRECATION") pInfo?.versionCode?.toLong() ?: 1L
-            }
-            put("appVersionCode", vCode)
-            put("packageName", context?.packageName ?: "com.example")
+            put("appVersionName", cachedAppVersionName)
+            put("appVersionCode", cachedAppVersionCode)
+            put("packageName", cachedPackageName)
         }
         root.put("diagnostics", diagObj)
 
@@ -2040,6 +2131,8 @@ class IpCameraServer(
             put("currentPresetName", eqState.currentPreset.displayName)
             put("bassCutMode", eqState.bassCutMode.id)
             put("bassCutModeName", eqState.bassCutMode.displayName)
+            put("autoVolumeNormalization", eqState.autoVolumeNormalization)
+            put("loudnessBoostGainMb", eqState.loudnessBoostGainMb)
             val gainsArr = JSONArray()
             eqState.bandGainsDb.forEach { gainsArr.put(it) }
             put("bandGainsDb", gainsArr)
@@ -3947,24 +4040,30 @@ class IpCameraServer(
         function toggleBrowserAudio(id, name) {
             if (browserAudio && browserPlayingId === id) {
                 if (!browserAudio.paused) {
-                    browserAudio.pause();
+                    try { browserAudio.pause(); } catch (_) {}
                     updateBrowserPreviewButtons(id, false);
                     showToast('ブラウザ試聴を一時停止しました');
                     return;
                 } else {
-                    browserAudio.play().then(function() {
-                        updateBrowserPreviewButtons(id, true);
-                        showToast('ブラウザ試聴を再開しました: ' + name);
-                    }).catch(function(err) {
-                        console.error('Browser play resume error:', err);
-                    });
+                    var p = browserAudio.play();
+                    if (p && typeof p.then === 'function') {
+                        p.then(function() {
+                            updateBrowserPreviewButtons(id, true);
+                            showToast('ブラウザ試聴を再開しました: ' + name);
+                        }).catch(function(err) {
+                            if (err && err.name === 'AbortError') return;
+                            console.warn('Browser play resume note:', err);
+                        });
+                    }
                     return;
                 }
             }
 
             if (browserAudio) {
-                browserAudio.pause();
-                browserAudio.src = '';
+                try {
+                    browserAudio.pause();
+                    browserAudio.src = '';
+                } catch (_) {}
                 if (browserPlayingId) updateBrowserPreviewButtons(browserPlayingId, false);
             }
 
@@ -3983,17 +4082,23 @@ class IpCameraServer(
                 browserPlayingId = null;
             };
             browserAudio.onerror = function() {
-                showToast('音声の読み込みに失敗しました');
-                updateBrowserPreviewButtons(id, false);
-                browserPlayingId = null;
+                if (browserPlayingId === id) {
+                    showToast('音声の読み込みに失敗しました');
+                    updateBrowserPreviewButtons(id, false);
+                    browserPlayingId = null;
+                }
             };
 
-            browserAudio.play().catch(function(e) {
-                console.error('Browser audio play error:', e);
-                showToast('ブラウザ再生に失敗しました（画面操作後に再試行してください）');
-                updateBrowserPreviewButtons(id, false);
-                browserPlayingId = null;
-            });
+            var playPromise = browserAudio.play();
+            if (playPromise && typeof playPromise.then === 'function') {
+                playPromise.catch(function(e) {
+                    if (e && e.name === 'AbortError') return;
+                    console.warn('Browser audio play notice:', e);
+                    showToast('ブラウザ再生に失敗しました（画面操作後に再試行してください）');
+                    updateBrowserPreviewButtons(id, false);
+                    browserPlayingId = null;
+                });
+            }
 
             showToast('ブラウザ試聴開始: ' + name);
         }

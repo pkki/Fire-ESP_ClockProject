@@ -158,7 +158,9 @@ data class EqualizerState(
     val virtualizerStrength: Int = 0, // 0..1000 (0% to 100% 3D surround sound)
     val bassCutMode: BassCutMode = BassCutMode.OFF,
     val isSupportedOnDevice: Boolean = true,
-    val centerFrequenciesHz: List<Int> = listOf(60, 230, 910, 3600, 14000)
+    val centerFrequenciesHz: List<Int> = listOf(60, 230, 910, 3600, 14000),
+    val autoVolumeNormalization: Boolean = true, // 自動音量ノーマライズ (最大音量まで自動引き上げ)
+    val loudnessBoostGainMb: Int = 400 // ハードウェア最大音量ブースト量 (mB: 0..1200)
 ) {
     /**
      * Compute effective band gains considering the optional bass cut mode on low bands

@@ -1607,6 +1607,94 @@ fun MusicPlayerDialog(
                                         }
                                     }
 
+                                    // 1.25 Auto Volume Normalization & Maximum Output Boost
+                                    item {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color(0xFF0F131D))
+                                                .border(1.dp, if (eqState.autoVolumeNormalization) Color(0xFF10B981) else Color(0x22FFFFFF), RoundedCornerShape(10.dp))
+                                                .padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.VolumeUp,
+                                                        contentDescription = null,
+                                                        tint = if (eqState.autoVolumeNormalization) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Column {
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                            Text("自動音量ノーマライズ (最大音量化)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                                            if (eqState.autoVolumeNormalization) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .clip(RoundedCornerShape(4.dp))
+                                                                        .background(Color(0xFF10B981))
+                                                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                                ) {
+                                                                    Text("MAX BOOST", fontSize = 8.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        }
+                                                        Text(
+                                                            "小さい曲を自動で最大音量まで引き上げ均一化",
+                                                            fontSize = 9.5.sp,
+                                                            color = Color(0xFF94A3B8)
+                                                        )
+                                                    }
+                                                }
+                                                androidx.compose.material3.Switch(
+                                                    checked = eqState.autoVolumeNormalization,
+                                                    onCheckedChange = { viewModel.setAutoVolumeNormalization(it) },
+                                                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                                                        checkedThumbColor = Color.White,
+                                                        checkedTrackColor = Color(0xFF10B981)
+                                                    )
+                                                )
+                                            }
+
+                                            if (eqState.autoVolumeNormalization) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text("⚡ ブースト強度 (Loudness Enhancer):", fontSize = 10.sp, color = Color(0xFFCCCCCC))
+                                                    Text(
+                                                        text = "+${String.format("%.1f", eqState.loudnessBoostGainMb / 100.0)} dB",
+                                                        fontSize = 10.5.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = Color(0xFF10B981)
+                                                    )
+                                                }
+                                                Slider(
+                                                    value = eqState.loudnessBoostGainMb.toFloat(),
+                                                    onValueChange = { viewModel.setLoudnessBoostGainMb(it.toInt()) },
+                                                    valueRange = 0f..1200f,
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor = Color(0xFF10B981),
+                                                        activeTrackColor = Color(0xFF10B981),
+                                                        inactiveTrackColor = Color(0x33FFFFFF)
+                                                    ),
+                                                    modifier = Modifier.height(24.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
                                     // 1.5 Earphone Jack Anti-Noise Keep-Alive (常時無音再生 / ノイズ防止)
                                     item {
                                         Row(

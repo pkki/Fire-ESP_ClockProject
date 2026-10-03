@@ -631,7 +631,9 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             ),
             bassBoostStrength = preferences.value.equalizerBassBoostStrength,
             virtualizerStrength = preferences.value.equalizerVirtualizerStrength,
-            bassCutName = preferences.value.equalizerBassCutMode
+            bassCutName = preferences.value.equalizerBassCutMode,
+            autoVolumeNormalization = preferences.value.autoVolumeNormalizationEnabled,
+            loudnessBoostGainMb = preferences.value.loudnessBoostGainMb
         )
         AudioEqualizerManager.onStateChanged = { eqState ->
             prefsManager.updateEqualizerPreset(
@@ -641,6 +643,8 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 bassBoost = eqState.bassBoostStrength,
                 virtualizer = eqState.virtualizerStrength
             )
+            prefsManager.updateAutoVolumeNormalization(eqState.autoVolumeNormalization)
+            prefsManager.updateLoudnessBoostGainMb(eqState.loudnessBoostGainMb)
         }
 
         // Initialize Earphone Jack Anti-Noise Keep-Alive Silence Track
@@ -704,6 +708,16 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     fun setEqualizerBassCutMode(mode: BassCutMode) {
         AudioEqualizerManager.setBassCutMode(mode)
         prefsManager.updateEqualizerBassCutMode(mode.id)
+    }
+
+    fun setAutoVolumeNormalization(enabled: Boolean) {
+        AudioEqualizerManager.setAutoVolumeNormalization(enabled)
+        prefsManager.updateAutoVolumeNormalization(enabled)
+    }
+
+    fun setLoudnessBoostGainMb(gainMb: Int) {
+        AudioEqualizerManager.setLoudnessBoostGainMb(gainMb)
+        prefsManager.updateLoudnessBoostGainMb(gainMb)
     }
 
     fun resetEqualizerToFlat() {

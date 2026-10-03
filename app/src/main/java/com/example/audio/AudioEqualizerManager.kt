@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.util.Log
 import com.example.model.BassCutMode
@@ -16,12 +17,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Centralized Audio Equalizer, Hardware BassBoost, and Virtualizer Sound Effects Manager
+ * Centralized Audio Equalizer, Hardware BassBoost, Virtualizer & LoudnessEnhancer Sound Effects Manager
  * - Robust Android 7 (Nougat, API 24/25) and modern Android compatibility
  * - Applies 5-band graphic equalizer across all audio and video players in the application
  * - Broadcasts ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION to trigger Android OS audio DSP engine
  * - Direct band mapping (0 to numBands - 1) avoiding HAL getBand frequency aliasing
  * - Hardware BassBoost (0% to 100%) and Virtualizer (3D Surround Sound)
+ * - Automatic Volume Normalization & Loudness Maximizer (Hardware LoudnessEnhancer)
  */
 object AudioEqualizerManager {
     private const val TAG = "AudioEqualizerManager"
@@ -31,22 +33,29 @@ object AudioEqualizerManager {
     private val _equalizerState = MutableStateFlow(EqualizerState())
     val equalizerState: StateFlow<EqualizerState> = _equalizerState.asStateFlow()
 
-    // Map of active audio session IDs to their hardware Equalizer, BassBoost, and Virtualizer instances
+    private val effectLock = Any()
+
+    // Map of active audio session IDs to their hardware Equalizer, BassBoost, Virtualizer, and LoudnessEnhancer instances
     private val activeEqualizers = ConcurrentHashMap<Int, Equalizer>()
     private val activeBassBoosts = ConcurrentHashMap<Int, BassBoost>()
     private val activeVirtualizers = ConcurrentHashMap<Int, Virtualizer>()
+    private val activeLoudnessEnhancers = ConcurrentHashMap<Int, LoudnessEnhancer>()
+
+    // Track-specific loudness boost overrides
+    private val sessionLoudnessOverrides = ConcurrentHashMap<Int, Int>()
 
     // Callback when state changes to persist to preferences
     var onStateChanged: ((EqualizerState) -> Unit)? = null
 
     fun initContext(context: Context) {
         appContext = context.applicationContext
+        AudioVolumeNormalizer.init(context)
         // Android 7 (Nougat, API 24/25) & legacy Android: Register global session 0 for system-wide DSP pipeline
         if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.P) {
             try {
                 registerAudioSessionInternal(0)
                 Log.i(TAG, "Android 7 global session 0 Equalizer/DSP initialized")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.w(TAG, "Global session 0 init: ${e.message}")
             }
         }
@@ -61,7 +70,9 @@ object AudioEqualizerManager {
         bands: List<Int>,
         bassBoostStrength: Int = 0,
         virtualizerStrength: Int = 0,
-        bassCutName: String = "OFF"
+        bassCutName: String = "OFF",
+        autoVolumeNormalization: Boolean = true,
+        loudnessBoostGainMb: Int = 400
     ) {
         val preset = try {
             EqualizerPreset.valueOf(presetName)
@@ -83,7 +94,9 @@ object AudioEqualizerManager {
             bandGainsDb = actualBands,
             bassBoostStrength = bassBoostStrength.coerceIn(0, 1000),
             virtualizerStrength = virtualizerStrength.coerceIn(0, 1000),
-            bassCutMode = bassCut
+            bassCutMode = bassCut,
+            autoVolumeNormalization = autoVolumeNormalization,
+            loudnessBoostGainMb = loudnessBoostGainMb.coerceIn(0, 1200)
         )
         _equalizerState.value = newState
         applyStateToAllEqualizers(newState)
@@ -98,102 +111,149 @@ object AudioEqualizerManager {
     }
 
     private fun registerAudioSessionInternal(sessionId: Int) {
-        try {
-            // Notify system audio effect control engine (Crucial on Android 7)
-            appContext?.let { ctx ->
+        synchronized(effectLock) {
+            try {
+                // Notify system audio effect control engine (Crucial on Android 7)
+                appContext?.let { ctx ->
+                    try {
+                        val intent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                            putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+                            putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
+                            putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+                        }
+                        ctx.sendBroadcast(intent)
+                    } catch (e: Throwable) {
+                        Log.d(TAG, "AudioEffect broadcast open failed: ${e.message}")
+                    }
+                }
+
+                // If already registered, update settings and return
+                activeEqualizers[sessionId]?.let { eq ->
+                    applyStateToEqualizer(eq, _equalizerState.value)
+                    reapplyToSessionLocked(sessionId)
+                    return
+                }
+
+                // Create Equalizer with standard application priority 0 (fallback to 1000 if 0 fails)
+                val eq = try {
+                    Equalizer(0, sessionId).apply {
+                        enabled = _equalizerState.value.isEnabled
+                    }
+                } catch (e0: Throwable) {
+                    try {
+                        Equalizer(1000, sessionId).apply {
+                            enabled = _equalizerState.value.isEnabled
+                        }
+                    } catch (e1: Throwable) {
+                        Log.w(TAG, "Equalizer creation failed for session $sessionId: ${e1.message}")
+                        null
+                    }
+                }
+
+                if (eq != null) {
+                    // Read supported center frequencies
+                    try {
+                        val numBands = eq.numberOfBands.toInt()
+                        if (numBands > 0) {
+                            val freqs = mutableListOf<Int>()
+                            for (i in 0 until minOf(5, numBands)) {
+                                val centerFreqMilliHz = eq.getCenterFreq(i.toShort())
+                                freqs.add(centerFreqMilliHz / 1000)
+                            }
+                            if (freqs.isNotEmpty()) {
+                                _equalizerState.value = _equalizerState.value.copy(
+                                    centerFrequenciesHz = freqs,
+                                    isSupportedOnDevice = true
+                                )
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Could not query center frequencies: ${e.message}")
+                    }
+
+                    activeEqualizers[sessionId] = eq
+                    applyStateToEqualizer(eq, _equalizerState.value)
+                }
+
+                // BassBoost & Virtualizer are only created on active positive session IDs (sessionId > 0)
+                // Attaching BassBoost/Virtualizer to global session 0 is unsafe on older Android HALs
+                if (sessionId > 0) {
+                    // Setup hardware BassBoost (priority 0, fallback 1000)
+                    try {
+                        val bb = try {
+                            BassBoost(0, sessionId)
+                        } catch (_: Throwable) {
+                            BassBoost(1000, sessionId)
+                        }
+                        val curState = _equalizerState.value
+                        val bbEnabled = curState.isEnabled && curState.bassBoostStrength > 0
+                        bb.enabled = bbEnabled
+                        if (bb.strengthSupported && bbEnabled) {
+                            bb.setStrength(curState.bassBoostStrength.toShort())
+                        }
+                        activeBassBoosts[sessionId] = bb
+                    } catch (e: Throwable) {
+                        Log.d(TAG, "BassBoost not supported on session $sessionId: ${e.message}")
+                    }
+
+                    // Setup hardware Virtualizer (priority 0, fallback 1000)
+                    try {
+                        val virt = try {
+                            Virtualizer(0, sessionId)
+                        } catch (_: Throwable) {
+                            Virtualizer(1000, sessionId)
+                        }
+                        val curState = _equalizerState.value
+                        val virtEnabled = curState.isEnabled && curState.virtualizerStrength > 0
+                        virt.enabled = virtEnabled
+                        if (virt.strengthSupported && virtEnabled) {
+                            virt.setStrength(curState.virtualizerStrength.toShort())
+                        }
+                        activeVirtualizers[sessionId] = virt
+                    } catch (e: Throwable) {
+                        Log.d(TAG, "Virtualizer not supported on session $sessionId: ${e.message}")
+                    }
+
+                    // Setup hardware LoudnessEnhancer for dynamic auto-volume normalization & maximum level boost
+                    try {
+                        val le = LoudnessEnhancer(sessionId)
+                        val curState = _equalizerState.value
+                        val leEnabled = curState.isEnabled && curState.autoVolumeNormalization
+                        le.enabled = leEnabled
+                        val targetGainMb = sessionLoudnessOverrides[sessionId] ?: curState.loudnessBoostGainMb
+                        if (leEnabled) {
+                            le.setTargetGain(targetGainMb)
+                        }
+                        activeLoudnessEnhancers[sessionId] = le
+                    } catch (e: Throwable) {
+                        Log.d(TAG, "LoudnessEnhancer not supported on session $sessionId: ${e.message}")
+                    }
+                }
+
+                Log.i(TAG, "Audio session $sessionId registered to Equalizer & LoudnessEnhancer (active count: ${activeEqualizers.size})")
+            } catch (e: Throwable) {
+                Log.w(TAG, "Failed to register session $sessionId: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Set track-specific loudness boost override (e.g. from AudioVolumeNormalizer peak analysis)
+     */
+    fun applyTrackLoudnessBoost(sessionId: Int, boostMb: Int) {
+        if (sessionId <= 0) return
+        sessionLoudnessOverrides[sessionId] = boostMb
+        synchronized(effectLock) {
+            activeLoudnessEnhancers[sessionId]?.let { le ->
                 try {
-                    val intent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
-                        putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
-                        putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
-                        putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
+                    val curState = _equalizerState.value
+                    val enabled = curState.isEnabled && curState.autoVolumeNormalization
+                    le.enabled = enabled
+                    if (enabled) {
+                        le.setTargetGain(boostMb)
                     }
-                    ctx.sendBroadcast(intent)
-                } catch (e: Exception) {
-                    Log.d(TAG, "AudioEffect broadcast open failed: ${e.message}")
-                }
+                } catch (_: Throwable) {}
             }
-
-            // If already registered, update settings and return
-            activeEqualizers[sessionId]?.let { eq ->
-                applyStateToEqualizer(eq, _equalizerState.value)
-                reapplyToSession(sessionId)
-                return
-            }
-
-            // Create Equalizer with standard application priority 0 (fallback to 1000 if 0 fails)
-            val eq = try {
-                Equalizer(0, sessionId).apply {
-                    enabled = _equalizerState.value.isEnabled
-                }
-            } catch (e0: Exception) {
-                Log.w(TAG, "Equalizer(0, $sessionId) failed: ${e0.message}, trying priority 1000")
-                Equalizer(1000, sessionId).apply {
-                    enabled = _equalizerState.value.isEnabled
-                }
-            }
-
-            // Read supported center frequencies
-            try {
-                val numBands = eq.numberOfBands.toInt()
-                if (numBands > 0) {
-                    val freqs = mutableListOf<Int>()
-                    for (i in 0 until minOf(5, numBands)) {
-                        val centerFreqMilliHz = eq.getCenterFreq(i.toShort())
-                        freqs.add(centerFreqMilliHz / 1000)
-                    }
-                    if (freqs.isNotEmpty()) {
-                        _equalizerState.value = _equalizerState.value.copy(
-                            centerFrequenciesHz = freqs,
-                            isSupportedOnDevice = true
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not query center frequencies: ${e.message}")
-            }
-
-            activeEqualizers[sessionId] = eq
-            applyStateToEqualizer(eq, _equalizerState.value)
-
-            // Setup hardware BassBoost (priority 0, fallback 1000)
-            try {
-                val bb = try {
-                    BassBoost(0, sessionId)
-                } catch (_: Exception) {
-                    BassBoost(1000, sessionId)
-                }
-                val curState = _equalizerState.value
-                val bbEnabled = curState.isEnabled && curState.bassBoostStrength > 0
-                bb.enabled = bbEnabled
-                if (bb.strengthSupported && bbEnabled) {
-                    bb.setStrength(curState.bassBoostStrength.toShort())
-                }
-                activeBassBoosts[sessionId] = bb
-            } catch (e: Exception) {
-                Log.d(TAG, "BassBoost not supported on session $sessionId: ${e.message}")
-            }
-
-            // Setup hardware Virtualizer (priority 0, fallback 1000)
-            try {
-                val virt = try {
-                    Virtualizer(0, sessionId)
-                } catch (_: Exception) {
-                    Virtualizer(1000, sessionId)
-                }
-                val curState = _equalizerState.value
-                val virtEnabled = curState.isEnabled && curState.virtualizerStrength > 0
-                virt.enabled = virtEnabled
-                if (virt.strengthSupported && virtEnabled) {
-                    virt.setStrength(curState.virtualizerStrength.toShort())
-                }
-                activeVirtualizers[sessionId] = virt
-            } catch (e: Exception) {
-                Log.d(TAG, "Virtualizer not supported on session $sessionId: ${e.message}")
-            }
-
-            Log.i(TAG, "Audio session $sessionId registered to Equalizer (active count: ${activeEqualizers.size}, enabled=${eq.enabled})")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to create Equalizer for session $sessionId: ${e.message}")
         }
     }
 
@@ -202,38 +262,47 @@ object AudioEqualizerManager {
      */
     fun unregisterAudioSession(sessionId: Int) {
         if (sessionId <= 0) return
-        try {
-            appContext?.let { ctx ->
-                try {
-                    val intent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
-                        putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
-                        putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
-                    }
-                    ctx.sendBroadcast(intent)
-                } catch (_: Exception) {}
-            }
+        sessionLoudnessOverrides.remove(sessionId)
+        synchronized(effectLock) {
+            try {
+                appContext?.let { ctx ->
+                    try {
+                        val intent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                            putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+                            putExtra(AudioEffect.EXTRA_PACKAGE_NAME, ctx.packageName)
+                        }
+                        ctx.sendBroadcast(intent)
+                    } catch (_: Throwable) {}
+                }
 
-            activeEqualizers.remove(sessionId)?.let { eq ->
-                try {
-                    eq.enabled = false
-                    eq.release()
-                } catch (_: Exception) {}
+                activeEqualizers.remove(sessionId)?.let { eq ->
+                    try {
+                        eq.enabled = false
+                        eq.release()
+                    } catch (_: Throwable) {}
+                }
+                activeBassBoosts.remove(sessionId)?.let { bb ->
+                    try {
+                        bb.enabled = false
+                        bb.release()
+                    } catch (_: Throwable) {}
+                }
+                activeVirtualizers.remove(sessionId)?.let { virt ->
+                    try {
+                        virt.enabled = false
+                        virt.release()
+                    } catch (_: Throwable) {}
+                }
+                activeLoudnessEnhancers.remove(sessionId)?.let { le ->
+                    try {
+                        le.enabled = false
+                        le.release()
+                    } catch (_: Throwable) {}
+                }
+                Log.d(TAG, "Audio session $sessionId unregistered from Equalizer")
+            } catch (e: Throwable) {
+                Log.w(TAG, "Error releasing Equalizer for session $sessionId: ${e.message}")
             }
-            activeBassBoosts.remove(sessionId)?.let { bb ->
-                try {
-                    bb.enabled = false
-                    bb.release()
-                } catch (_: Exception) {}
-            }
-            activeVirtualizers.remove(sessionId)?.let { virt ->
-                try {
-                    virt.enabled = false
-                    virt.release()
-                } catch (_: Exception) {}
-            }
-            Log.d(TAG, "Audio session $sessionId unregistered from Equalizer")
-        } catch (e: Exception) {
-            Log.w(TAG, "Error releasing Equalizer for session $sessionId: ${e.message}")
         }
     }
 
@@ -325,6 +394,27 @@ object AudioEqualizerManager {
     }
 
     /**
+     * Enable or disable automatic volume normalization (loudness maximizer)
+     */
+    fun setAutoVolumeNormalization(enabled: Boolean) {
+        val updated = _equalizerState.value.copy(autoVolumeNormalization = enabled)
+        _equalizerState.value = updated
+        applyStateToAllEqualizers(updated)
+        onStateChanged?.invoke(updated)
+    }
+
+    /**
+     * Set hardware LoudnessEnhancer target boost gain (0 .. 1200 mB)
+     */
+    fun setLoudnessBoostGainMb(gainMb: Int) {
+        val clamped = gainMb.coerceIn(0, 1200)
+        val updated = _equalizerState.value.copy(loudnessBoostGainMb = clamped)
+        _equalizerState.value = updated
+        applyStateToAllEqualizers(updated)
+        onStateChanged?.invoke(updated)
+    }
+
+    /**
      * Reset Equalizer to Flat
      */
     fun resetToFlat() {
@@ -332,30 +422,48 @@ object AudioEqualizerManager {
     }
 
     private fun applyStateToAllEqualizers(state: EqualizerState) {
-        activeEqualizers.values.forEach { eq ->
-            applyStateToEqualizer(eq, state)
-        }
-        activeBassBoosts.values.forEach { bb ->
-            try {
-                val shouldEnable = state.isEnabled && state.bassBoostStrength > 0
-                bb.enabled = shouldEnable
-                if (bb.strengthSupported && shouldEnable) {
-                    bb.setStrength(state.bassBoostStrength.toShort())
-                }
-            } catch (_: Exception) {}
-        }
-        activeVirtualizers.values.forEach { virt ->
-            try {
-                val shouldEnable = state.isEnabled && state.virtualizerStrength > 0
-                virt.enabled = shouldEnable
-                if (virt.strengthSupported && shouldEnable) {
-                    virt.setStrength(state.virtualizerStrength.toShort())
-                }
-            } catch (_: Exception) {}
+        synchronized(effectLock) {
+            activeEqualizers.values.forEach { eq ->
+                applyStateToEqualizer(eq, state)
+            }
+            activeBassBoosts.values.forEach { bb ->
+                try {
+                    val shouldEnable = state.isEnabled && state.bassBoostStrength > 0
+                    bb.enabled = shouldEnable
+                    if (bb.strengthSupported && shouldEnable) {
+                        bb.setStrength(state.bassBoostStrength.toShort())
+                    }
+                } catch (_: Throwable) {}
+            }
+            activeVirtualizers.values.forEach { virt ->
+                try {
+                    val shouldEnable = state.isEnabled && state.virtualizerStrength > 0
+                    virt.enabled = shouldEnable
+                    if (virt.strengthSupported && shouldEnable) {
+                        virt.setStrength(state.virtualizerStrength.toShort())
+                    }
+                } catch (_: Throwable) {}
+            }
+            activeLoudnessEnhancers.forEach { (sessionId, le) ->
+                try {
+                    val shouldEnable = state.isEnabled && state.autoVolumeNormalization
+                    le.enabled = shouldEnable
+                    if (shouldEnable) {
+                        val gainMb = sessionLoudnessOverrides[sessionId] ?: state.loudnessBoostGainMb
+                        le.setTargetGain(gainMb)
+                    }
+                } catch (_: Throwable) {}
+            }
         }
     }
 
     fun reapplyToSession(sessionId: Int) {
+        synchronized(effectLock) {
+            reapplyToSessionLocked(sessionId)
+        }
+    }
+
+    private fun reapplyToSessionLocked(sessionId: Int) {
         activeEqualizers[sessionId]?.let { eq ->
             applyStateToEqualizer(eq, _equalizerState.value)
         }
@@ -368,7 +476,7 @@ object AudioEqualizerManager {
                     bb.setStrength(state.bassBoostStrength.toShort())
                 }
                 bb.enabled = bbEnabled
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
         }
         activeVirtualizers[sessionId]?.let { virt ->
             try {
@@ -379,24 +487,30 @@ object AudioEqualizerManager {
                     virt.setStrength(state.virtualizerStrength.toShort())
                 }
                 virt.enabled = virtEnabled
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
+        }
+        activeLoudnessEnhancers[sessionId]?.let { le ->
+            try {
+                val state = _equalizerState.value
+                val leEnabled = state.isEnabled && state.autoVolumeNormalization
+                le.enabled = leEnabled
+                if (leEnabled) {
+                    val gainMb = sessionLoudnessOverrides[sessionId] ?: state.loudnessBoostGainMb
+                    le.setTargetGain(gainMb)
+                }
+            } catch (_: Throwable) {}
         }
     }
 
     private fun applyStateToEqualizer(eq: Equalizer, state: EqualizerState) {
         try {
-            val numBands = try { eq.numberOfBands.toInt() } catch (_: Exception) { 0 }
+            val numBands = try { eq.numberOfBands.toInt() } catch (_: Throwable) { 0 }
             if (numBands <= 0) return
 
-            val minLevel = try { eq.bandLevelRange?.get(0)?.toInt() ?: -1500 } catch (_: Exception) { -1500 }
-            val maxLevel = try { eq.bandLevelRange?.get(1)?.toInt() ?: 1500 } catch (_: Exception) { 1500 }
+            val minLevel = try { eq.bandLevelRange?.get(0)?.toInt() ?: -1500 } catch (_: Throwable) { -1500 }
+            val maxLevel = try { eq.bandLevelRange?.get(1)?.toInt() ?: 1500 } catch (_: Throwable) { 1500 }
 
             val effectiveGains = state.getEffectiveBandGains()
-
-            // Toggle enabled off to force hardware DSP to accept and reload new coefficients
-            try {
-                eq.enabled = false
-            } catch (_: Exception) {}
 
             // Direct 1:1 band index mapping to guarantee every hardware band receives its exact level
             for (i in 0 until numBands) {
@@ -412,16 +526,16 @@ object AudioEqualizerManager {
 
                 try {
                     eq.setBandLevel(i.toShort(), targetMilliBels)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.w(TAG, "Error setting band $i to $targetMilliBels: ${e.message}")
                 }
             }
 
             // Confirm enabled state on hardware effect
             eq.enabled = state.isEnabled
-            val hasControl = try { eq.hasControl() } catch (_: Exception) { true }
+            val hasControl = try { eq.hasControl() } catch (_: Throwable) { true }
             Log.d(TAG, "Equalizer applied: enabled=${state.isEnabled}, hasControl=$hasControl, bands=$numBands")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "Error applying state to Equalizer: ${e.message}")
         }
     }
@@ -447,28 +561,39 @@ object AudioEqualizerManager {
     }
 
     fun releaseAll() {
-        activeEqualizers.forEach { (sessionId, eq) ->
-            try {
-                eq.enabled = false
-                eq.release()
-            } catch (_: Exception) {}
-        }
-        activeEqualizers.clear()
+        synchronized(effectLock) {
+            activeEqualizers.forEach { (sessionId, eq) ->
+                try {
+                    eq.enabled = false
+                    eq.release()
+                } catch (_: Throwable) {}
+            }
+            activeEqualizers.clear()
 
-        activeBassBoosts.forEach { (_, bb) ->
-            try {
-                bb.enabled = false
-                bb.release()
-            } catch (_: Exception) {}
-        }
-        activeBassBoosts.clear()
+            activeBassBoosts.forEach { (_, bb) ->
+                try {
+                    bb.enabled = false
+                    bb.release()
+                } catch (_: Throwable) {}
+            }
+            activeBassBoosts.clear()
 
-        activeVirtualizers.forEach { (_, virt) ->
-            try {
-                virt.enabled = false
-                virt.release()
-            } catch (_: Exception) {}
+            activeVirtualizers.forEach { (_, virt) ->
+                try {
+                    virt.enabled = false
+                    virt.release()
+                } catch (_: Throwable) {}
+            }
+            activeVirtualizers.clear()
+
+            activeLoudnessEnhancers.forEach { (_, le) ->
+                try {
+                    le.enabled = false
+                    le.release()
+                } catch (_: Throwable) {}
+            }
+            activeLoudnessEnhancers.clear()
+            sessionLoudnessOverrides.clear()
         }
-        activeVirtualizers.clear()
     }
 }

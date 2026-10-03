@@ -107,6 +107,8 @@ class ClockPreferencesManager(context: Context) {
             equalizerBassBoostStrength = prefs.getInt("equalizer_bass_boost", 0),
             equalizerVirtualizerStrength = prefs.getInt("equalizer_virtualizer", 0),
             equalizerBassCutMode = prefs.getString("equalizer_bass_cut_mode", "OFF") ?: "OFF",
+            autoVolumeNormalizationEnabled = prefs.getBoolean("auto_volume_normalization_enabled", true),
+            loudnessBoostGainMb = prefs.getInt("loudness_boost_gain_mb", 400),
             antiNoiseSilenceEnabled = prefs.getBoolean("anti_noise_silence_enabled", true)
         )
     }
@@ -164,6 +166,8 @@ class ClockPreferencesManager(context: Context) {
             .putInt("equalizer_bass_boost", state.equalizerBassBoostStrength)
             .putInt("equalizer_virtualizer", state.equalizerVirtualizerStrength)
             .putString("equalizer_bass_cut_mode", state.equalizerBassCutMode)
+            .putBoolean("auto_volume_normalization_enabled", state.autoVolumeNormalizationEnabled)
+            .putInt("loudness_boost_gain_mb", state.loudnessBoostGainMb)
             .putBoolean("anti_noise_silence_enabled", state.antiNoiseSilenceEnabled)
             .apply()
         _state.value = state
@@ -958,6 +962,17 @@ class ClockPreferencesManager(context: Context) {
     fun updateEqualizerBassCutMode(mode: String) {
         prefs.edit().putString("equalizer_bass_cut_mode", mode).apply()
         _state.value = _state.value.copy(equalizerBassCutMode = mode)
+    }
+
+    fun updateAutoVolumeNormalization(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_volume_normalization_enabled", enabled).apply()
+        _state.value = _state.value.copy(autoVolumeNormalizationEnabled = enabled)
+    }
+
+    fun updateLoudnessBoostGainMb(gainMb: Int) {
+        val clamped = gainMb.coerceIn(0, 1200)
+        prefs.edit().putInt("loudness_boost_gain_mb", clamped).apply()
+        _state.value = _state.value.copy(loudnessBoostGainMb = clamped)
     }
 
     // --- Earphone Jack Anti-Noise Keep-Alive Silence Preferences ---

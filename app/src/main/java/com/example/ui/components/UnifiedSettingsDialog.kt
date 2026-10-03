@@ -6047,6 +6047,111 @@ private fun EqualizerSettingsContent(
             }
         }
 
+        // 1.25 Auto Volume Normalization & Maximum Output Boost (自動音量ノーマライズ・最大音量引き上げ)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF0F131D))
+                    .border(1.2.dp, if (eqState.autoVolumeNormalization) Color(0xFF10B981) else Color(0x22FFFFFF), RoundedCornerShape(16.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (eqState.autoVolumeNormalization) Color(0x3310B981) else Color(0x22FFFFFF),
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.VolumeUp,
+                                    contentDescription = null,
+                                    tint = if (eqState.autoVolumeNormalization) Color(0xFF10B981) else Color(0xFF94A3B8),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("自動音量ノーマライズ（最大音量引き上げ）", fontSize = 14.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                if (eqState.autoVolumeNormalization) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF10B981))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("AUTO MAX", fontSize = 9.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            Text(
+                                "録音レベルの低い曲や小さい音楽ファイルを自動解析し、音割れなくクリアな最大音量まで引き上げて均一再生します",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = eqState.autoVolumeNormalization,
+                        onCheckedChange = { viewModel.setAutoVolumeNormalization(it) },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color(0xFF10B981),
+                            checkedTrackColor = Color(0x6610B981)
+                        )
+                    )
+                }
+
+                if (eqState.autoVolumeNormalization) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0x1410B981))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⚡ 最大音量ブースト強度 (Loudness Enhancer):", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                            Text(
+                                text = "+${String.format("%.1f", eqState.loudnessBoostGainMb / 100.0)} dB",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color(0xFF10B981)
+                            )
+                        }
+                        Slider(
+                            value = eqState.loudnessBoostGainMb.toFloat(),
+                            onValueChange = { viewModel.setLoudnessBoostGainMb(it.toInt()) },
+                            valueRange = 0f..1200f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF10B981),
+                                activeTrackColor = Color(0xFF10B981),
+                                inactiveTrackColor = Color(0x33FFFFFF)
+                            ),
+                            modifier = Modifier.height(32.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // 1.5 Sound Enhancement Bars: Bass Boost & 3D Virtualizer
         item {
             Column(

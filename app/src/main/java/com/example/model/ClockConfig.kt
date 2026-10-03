@@ -153,6 +153,9 @@ data class ClockPreferencesState(
     val equalizerBassBoostStrength: Int = 0, // 0..1000 (0% .. 100%)
     val equalizerVirtualizerStrength: Int = 0, // 0..1000 (0% .. 100%)
     val equalizerBassCutMode: String = "OFF", // OFF, LIGHT, MEDIUM, STRONG, EXTREME
+    // Auto Volume Normalization & Maximum Output Boost (自動音量ノーマライズ・最大音量引き上げ)
+    val autoVolumeNormalizationEnabled: Boolean = true,
+    val loudnessBoostGainMb: Int = 400, // 0..1200 mB
     // Earphone Jack / DAC Anti-Noise Silence Keep-Alive (イヤホンジャック待機ノイズ・ポップ音防止の常時無音再生)
     val antiNoiseSilenceEnabled: Boolean = true
 )
