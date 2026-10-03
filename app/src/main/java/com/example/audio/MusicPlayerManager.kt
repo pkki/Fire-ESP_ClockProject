@@ -126,6 +126,8 @@ object MusicPlayerManager {
         volume: Float,
         repeatMode: MusicRepeatMode
     ) {
+        // Prevent simultaneous playback / audio doubling with Video player
+        VideoPlayerManager.stop()
         stopInternal(keepTrack = true)
 
         val file = File(track.filePath)
@@ -155,6 +157,11 @@ object MusicPlayerManager {
                     setDataSource(fis.fd)
                 }
                 setVolume(volume, volume)
+
+                val initialSessionId = audioSessionId
+                if (initialSessionId > 0) {
+                    AudioEqualizerManager.registerAudioSession(initialSessionId)
+                }
 
                 setOnPreparedListener { mp ->
                     try {
@@ -247,6 +254,7 @@ object MusicPlayerManager {
     }
 
     fun resume() {
+        VideoPlayerManager.stop()
         val mp = mediaPlayer
         if (mp != null && _playerState.value.isPaused) {
             try {

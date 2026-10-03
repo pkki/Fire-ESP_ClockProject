@@ -474,11 +474,13 @@ fun CustomVideoTexturePlayer(
     val currentOnVideoEnded by androidx.compose.runtime.rememberUpdatedState(onVideoEnded)
     val videoState by VideoPlayerManager.playerState.collectAsState()
 
-    // Ensure VideoPlayerManager is playing this video without duplicate player creation
+    // Ensure VideoPlayerManager is playing this video without duplicate player creation or restart
     LaunchedEffect(videoPath, playAudio, volume, durationSeconds) {
         val current = VideoPlayerManager.playerState.value
-        val isSame = current.currentVideo?.filePath == videoPath && current.isPlaying
-        if (!isSame) {
+        val isSameVideo = current.currentVideo?.filePath == videoPath
+        val isAlreadyRunning = isSameVideo && (current.isPlaying || current.isPaused)
+
+        if (!isAlreadyRunning) {
             val fileName = File(videoPath).name
             val videoItem = CustomVideoItem(
                 id = videoPath.hashCode().toString(),
@@ -488,16 +490,18 @@ fun CustomVideoTexturePlayer(
             VideoPlayerManager.onVideoCompletion = {
                 currentOnVideoEnded?.invoke()
             }
+            val playVol = if (isSameVideo) current.volume else volume
             VideoPlayerManager.playVideo(
                 video = videoItem,
                 playAudio = playAudio,
-                volume = volume,
+                volume = playVol,
                 isLooping = (durationSeconds != -1)
             )
         }
     }
 
     var textureViewRef by remember { mutableStateOf<TextureView?>(null) }
+    var activeLocalSurface by remember { mutableStateOf<Surface?>(null) }
 
     fun updateMatrix(tv: TextureView, vw: Int, vh: Int) {
         val viewW = tv.width
@@ -545,6 +549,7 @@ fun CustomVideoTexturePlayer(
                     ) {
                         textureViewRef = this@apply
                         val surface = Surface(surfaceTexture)
+                        activeLocalSurface = surface
                         VideoPlayerManager.attachSurface(surface)
                         updateMatrix(this@apply, videoState.videoWidth, videoState.videoHeight)
                     }
@@ -559,7 +564,8 @@ fun CustomVideoTexturePlayer(
 
                     override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
                         textureViewRef = null
-                        VideoPlayerManager.detachSurface()
+                        activeLocalSurface?.let { VideoPlayerManager.detachSurface(it) }
+                        activeLocalSurface = null
                         return true
                     }
 
@@ -578,7 +584,8 @@ fun CustomVideoTexturePlayer(
 
     DisposableEffect(Unit) {
         onDispose {
-            VideoPlayerManager.detachSurface()
+            activeLocalSurface?.let { VideoPlayerManager.detachSurface(it) }
+            activeLocalSurface = null
         }
     }
 }

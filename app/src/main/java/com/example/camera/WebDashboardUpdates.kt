@@ -63,11 +63,14 @@ object WebDashboardUpdates {
                     </div>
 
                     <!-- APK Upload Dropzone -->
-                    <div class="upload-dropzone" id="apkDropzone" onclick="document.getElementById('apkFileInput').click()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        <p style="font-weight: 600; font-size: 0.88rem; color: #fff;">クリックまたはドラッグ＆ドロップで APK を選択</p>
-                        <p style="font-size: 0.76rem; color: var(--text-muted); margin-top: 4px;">DeskClock-release.apk または debug.apk に対応</p>
-                        <input type="file" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" style="display:none" onchange="uploadApk(this.files[0])">
+                    <input type="file" id="apkFileInput" accept=".apk,application/vnd.android.package-archive" style="display:none;" onchange="if(this.files&&this.files.length>0) uploadApk(this.files[0])">
+                    <div class="upload-dropzone" id="apkDropzone" onclick="document.getElementById('apkFileInput').click()" style="cursor: pointer; position: relative;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" style="width: 32px; height: 32px; margin-bottom: 8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <p style="font-weight: 700; font-size: 0.92rem; color: #fff; margin: 0 0 4px 0;">クリックまたはドラッグ＆ドロップで APK を選択</p>
+                        <p style="font-size: 0.76rem; color: var(--text-muted); margin: 0 0 10px 0;">DeskClock-release.apk または debug.apk に対応</p>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.getElementById('apkFileInput').click();" style="pointer-events: auto;">
+                            📁 PC/端末からAPKファイルを選択
+                        </button>
                     </div>
 
                     <!-- Inline APK Upload Progress -->
@@ -91,7 +94,7 @@ object WebDashboardUpdates {
                             🌐 外部URLまたはローカルサーバーから直接ダウンロード更新
                         </label>
                         <div style="display: flex; gap: 8px;">
-                            <input type="url" id="txtApkDownloadUrl" placeholder="https://github.com/.../app-release.apk" style="flex: 1; font-size: 0.8rem;">
+                            <input type="url" id="txtApkDownloadUrl" placeholder="http://192.168.1.xxx:8000/app-release.apk" onkeypress="if(event.key==='Enter') downloadApkFromUrl()" style="flex: 1; font-size: 0.8rem;">
                             <button class="btn btn-primary btn-sm" onclick="downloadApkFromUrl()" id="btnDownloadApk">
                                 取得＆更新
                             </button>
@@ -99,7 +102,7 @@ object WebDashboardUpdates {
                     </div>
 
                     <!-- APK Result / Status Box -->
-                    <div id="apkStatusBox" style="display:none; margin-top: 14px; padding: 12px; border-radius: var(--radius-md); font-size: 0.8rem; line-height: 1.4;"></div>
+                    <div id="apkStatusBox" style="display:none; margin-top: 14px; padding: 12px; border-radius: var(--radius-md); font-size: 0.8rem; line-height: 1.5;"></div>
                 </div>
 
                 <!-- CARD 2: ESP8266 / ESP32 SENSOR FIRMWARE OTA -->

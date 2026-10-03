@@ -756,23 +756,79 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * WebダッシュボードからアップロードされたAPKファイルをインストール
+     * WebダッシュボードからアップロードされたAPKファイルをインストール (Android 7〜最新Android対応)
      */
     fun installUploadedApk(fileName: String, apkBytes: ByteArray): Pair<Boolean, String> {
         return try {
             val app = getApplication<Application>()
             val apkDir = File(app.cacheDir, "apk_updates")
             if (!apkDir.exists()) apkDir.mkdirs()
+            apkDir.setReadable(true, false)
+            apkDir.setExecutable(true, false)
+
             val safeName = fileName.ifBlank { "DeskClock_update.apk" }
             val apkFile = File(apkDir, safeName)
             apkFile.writeBytes(apkBytes)
+            installApkFile(apkFile, safeName)
+        } catch (e: Exception) {
+            Log.e("ClockViewModel", "Failed to write APK file", e)
+            Pair(false, "APK保存失敗: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * APKファイルを端末パッケージインストーラーで起動 (Android 7 Nougat 完全対応)
+     */
+    fun installApkFile(apkFile: File, fileName: String): Pair<Boolean, String> {
+        return try {
+            val app = getApplication<Application>()
+            val apkDir = apkFile.parentFile ?: File(app.cacheDir, "apk_updates")
+            if (!apkDir.exists()) apkDir.mkdirs()
+            apkDir.setReadable(true, false)
+            apkDir.setExecutable(true, false)
+            apkFile.setReadable(true, false)
 
             val pm = app.packageManager
             val archiveInfo = pm.getPackageArchiveInfo(apkFile.absolutePath, 0)
             val infoStr = if (archiveInfo != null) {
                 "バージョン: ${archiveInfo.versionName ?: "最新"} (コード: ${archiveInfo.versionCode})"
             } else {
-                "APK解析完了"
+                "APKサイズ: ${String.format("%.1f", apkFile.length() / (1024.0 * 1024.0))} MB"
+            }
+
+            // Android 7 (API 24/25): Check Unknown Sources permission
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                try {
+                    @Suppress("DEPRECATION")
+                    val isNonMarketAllowed = android.provider.Settings.Secure.getInt(
+                        app.contentResolver,
+                        android.provider.Settings.Secure.INSTALL_NON_MARKET_APPS,
+                        0
+                    ) == 1
+                    if (!isNonMarketAllowed) {
+                        try {
+                            val secIntent = Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            app.startActivity(secIntent)
+                            return Pair(
+                                false,
+                                "Androidの「セキュリティ」設定で「提供元不明のアプリのインストール」をONにしてください (設定画面を開きました)。再度更新をお試しください。"
+                            )
+                        } catch (_: Exception) {}
+                    }
+                } catch (_: Exception) {}
+            } else {
+                // Android 8.0+ Unknown sources check
+                if (!pm.canRequestPackageInstalls()) {
+                    try {
+                        val permIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                            data = Uri.parse("package:${app.packageName}")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        app.startActivity(permIntent)
+                    } catch (_: Exception) {}
+                }
             }
 
             val apkUri = FileProvider.getUriForFile(
@@ -781,13 +837,61 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                 apkFile
             )
 
+            // Primary Intent for Android 7+ (FileProvider content URI)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, app.packageName)
             }
-            app.startActivity(intent)
-            Pair(true, "APKを端末へ転送しました ($infoStr)。端末画面でインストール確認ダイアログを開きました。")
+
+            // Explicitly grant URI read permissions to system Package Installers on Android 7
+            val knownInstallers = listOf(
+                "com.google.android.packageinstaller",
+                "com.android.packageinstaller",
+                "com.android.defcontainer",
+                "com.google.android.apps.packageinstaller"
+            )
+            for (pkg in knownInstallers) {
+                try {
+                    app.grantUriPermission(pkg, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                } catch (_: Exception) {}
+            }
+
+            // Grant to all resolved activities matching the intent without MATCH_DEFAULT_ONLY filter
+            try {
+                val resInfoList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    pm.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_ALL)
+                } else {
+                    pm.queryIntentActivities(intent, 0)
+                }
+                for (resolveInfo in resInfoList) {
+                    val pkg = resolveInfo.activityInfo?.packageName
+                    if (!pkg.isNullOrBlank()) {
+                        try {
+                            app.grantUriPermission(pkg, apkUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        } catch (_: Exception) {}
+                    }
+                }
+            } catch (_: Exception) {}
+
+            try {
+                app.startActivity(intent)
+            } catch (e: Exception) {
+                Log.w("ClockViewModel", "ACTION_VIEW install failed, trying ACTION_INSTALL_PACKAGE fallback", e)
+                @Suppress("DEPRECATION")
+                val fallbackIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                    setDataAndType(apkUri, "application/vnd.android.package-archive")
+                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                }
+                app.startActivity(fallbackIntent)
+            }
+
+            Pair(true, "APKの準備完了 ($infoStr)！卓上時計の画面にインストーラーが表示されました。「更新」または「インストール」をタップしてください。")
         } catch (e: Exception) {
             Log.e("ClockViewModel", "Failed to launch APK installer", e)
             Pair(false, "インストーラー起動失敗: ${e.localizedMessage}")
@@ -819,15 +923,27 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * 端末内ストレージのURIからAPKを読み込んでインストール
+     * 端末内ストレージのURIからAPKを読み込んでインストール (省メモリ高速ストリーム対応)
      */
     fun installApkFromUri(uri: Uri): Pair<Boolean, String> {
         return try {
             val app = getApplication<Application>()
-            val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: return Pair(false, "ファイルを開けませんでした")
-            val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "DeskClock_local.apk"
-            installUploadedApk(fileName, bytes)
+            val apkDir = File(app.cacheDir, "apk_updates")
+            if (!apkDir.exists()) apkDir.mkdirs()
+            val fileName = uri.lastPathSegment?.substringAfterLast("/")?.ifBlank { "DeskClock_local.apk" } ?: "DeskClock_local.apk"
+            val safeName = if (fileName.endsWith(".apk", ignoreCase = true)) fileName else "$fileName.apk"
+            val apkFile = File(apkDir, safeName)
+
+            val inputStream = app.contentResolver.openInputStream(uri)
+                ?: return Pair(false, "ファイルを開けませんでした (権限またはファイルが存在しません)")
+
+            inputStream.use { input ->
+                apkFile.outputStream().use { output ->
+                    input.copyTo(output, bufferSize = 16384)
+                }
+            }
+
+            installApkFile(apkFile, safeName)
         } catch (e: Exception) {
             Log.e("ClockViewModel", "Failed to install APK from URI", e)
             Pair(false, "APKインストール失敗: ${e.localizedMessage}")
@@ -2442,6 +2558,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
     fun setVideoVolume(volume: Float) {
         val clamped = volume.coerceIn(0f, 1f)
         VideoPlayerManager.setVolume(clamped)
+        prefsManager.updatePreferences(preferences.value.copy(musicPlayerVolume = clamped))
     }
 
     fun toggleVideoMute() {
@@ -2553,7 +2670,11 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
 
         if (videoSourceType == ChimeVideoSourceType.CUSTOM_FILE && !customVideoPath.isNullOrEmpty()) {
             val curVid = VideoPlayerManager.playerState.value
-            val isAlreadyPlaying = curVid.currentVideo?.filePath == customVideoPath && curVid.isPlaying
+            val isSameVideo = curVid.currentVideo?.filePath == customVideoPath
+            // Preserve the exact playing volume to prevent volume drops when toggling full-screen
+            val effectiveVolume = if (isSameVideo && (curVid.isPlaying || curVid.isPaused)) curVid.volume else volume
+            val isAlreadyPlaying = isSameVideo && curVid.isPlaying
+
             if (!isAlreadyPlaying) {
                 val videoItem = customVideoList.value.find { it.filePath == customVideoPath }
                     ?: CustomVideoItem(
@@ -2565,18 +2686,21 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
                     video = videoItem,
                     displayLayer = displayLayer,
                     playAudio = playVideoAudio,
-                    volume = volume,
+                    volume = effectiveVolume,
                     isLooping = (durationSeconds != -1 && durationSeconds != 0) || durationSeconds == 0
                 )
             } else {
                 VideoPlayerManager.setDisplayLayer(displayLayer)
                 if (playVideoAudio) {
-                    VideoPlayerManager.setVolume(volume)
+                    VideoPlayerManager.setVolume(effectiveVolume)
                 }
             }
         } else {
             VideoPlayerManager.stop()
         }
+
+        val curVidForActive = VideoPlayerManager.playerState.value
+        val actualVol = if (curVidForActive.currentVideo?.filePath == customVideoPath) curVidForActive.volume else volume
 
         _activeBackgroundVideo.value = ActiveBackgroundVideo(
             chimeId = null,
@@ -2585,7 +2709,7 @@ class ClockViewModel(application: Application) : AndroidViewModel(application) {
             customVideoPath = customVideoPath,
             customVideoName = customVideoName,
             playVideoAudio = playVideoAudio,
-            volume = volume,
+            volume = actualVol,
             startTimeMs = System.currentTimeMillis(),
             durationSeconds = durationSeconds,
             displayLayer = displayLayer

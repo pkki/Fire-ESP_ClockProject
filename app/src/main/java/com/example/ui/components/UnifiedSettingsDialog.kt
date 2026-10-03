@@ -4432,9 +4432,16 @@ private fun DiagnosticsSettingsContent(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val (success, message) = viewModel.installApkFromUri(uri)
-            updateStatusMessage = message
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            isUpdating = true
+            updateStatusMessage = "APKファイルを検証・転送中..."
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val (success, message) = viewModel.installApkFromUri(uri)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isUpdating = false
+                    updateStatusMessage = message
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -4613,7 +4620,7 @@ private fun DiagnosticsSettingsContent(
                 ) {
                     Button(
                         onClick = {
-                            apkPickerLauncher.launch("application/vnd.android.package-archive")
+                            apkPickerLauncher.launch("*/*")
                         },
                         modifier = Modifier
                             .weight(1f)

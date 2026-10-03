@@ -1554,7 +1554,13 @@ class IpCameraServer(
                 var dataEndIndex = bodyBytes.size
                 if (boundaryPattern != null) {
                     val boundaryBytes = boundaryPattern.toByteArray(Charsets.UTF_8)
-                    for (i in dataStartIndex until (bodyBytes.size - boundaryBytes.size + 1)) {
+                    // High-speed reverse scan: the multipart closing boundary is always located in the last few KB
+                    val searchStart = (bodyBytes.size - boundaryBytes.size).coerceAtLeast(dataStartIndex)
+                    val fastSearchLimit = (bodyBytes.size - 8192).coerceAtLeast(dataStartIndex)
+                    var found = false
+
+                    // Fast check in last 8KB
+                    for (i in searchStart downTo fastSearchLimit) {
                         var match = true
                         for (j in boundaryBytes.indices) {
                             if (bodyBytes[i + j] != boundaryBytes[j]) {
@@ -1570,7 +1576,31 @@ class IpCameraServer(
                                 end -= 1
                             }
                             dataEndIndex = end
+                            found = true
                             break
+                        }
+                    }
+
+                    // Fallback reverse scan if boundary was further up
+                    if (!found) {
+                        for (i in (fastSearchLimit - 1) downTo dataStartIndex) {
+                            var match = true
+                            for (j in boundaryBytes.indices) {
+                                if (bodyBytes[i + j] != boundaryBytes[j]) {
+                                    match = false
+                                    break
+                                }
+                            }
+                            if (match) {
+                                var end = i
+                                if (end >= 2 && bodyBytes[end - 2] == '\r'.code.toByte() && bodyBytes[end - 1] == '\n'.code.toByte()) {
+                                    end -= 2
+                                } else if (end >= 1 && bodyBytes[end - 1] == '\n'.code.toByte()) {
+                                    end -= 1
+                                }
+                                dataEndIndex = end
+                                break
+                            }
                         }
                     }
                 }

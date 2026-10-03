@@ -105,6 +105,9 @@ object VideoPlayerManager {
             return
         }
 
+        // Prevent simultaneous playback / audio doubling with Music player
+        MusicPlayerManager.stop()
+
         // Accurate duration & dimension probe beforehand
         val fallbackDur = probeDuration(video.filePath)
         val (initW, initH) = probeVideoDimensions(video.filePath)
@@ -134,6 +137,11 @@ object VideoPlayerManager {
                 this.isLooping = isLooping
                 val vol = if (playAudio && !_playerState.value.isMuted) volume.coerceIn(0f, 1f) else 0f
                 setVolume(vol, vol)
+
+                val initialSessionId = audioSessionId
+                if (initialSessionId > 0 && playAudio) {
+                    AudioEqualizerManager.registerAudioSession(initialSessionId)
+                }
 
                 setOnVideoSizeChangedListener { _, width, height ->
                     if (width > 0 && height > 0) {
@@ -266,6 +274,7 @@ object VideoPlayerManager {
     }
 
     fun resume() {
+        MusicPlayerManager.stop()
         val mp = mediaPlayer
         if (mp != null && _playerState.value.isPaused) {
             try {

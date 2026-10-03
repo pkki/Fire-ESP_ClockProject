@@ -41,6 +41,14 @@ object AudioEqualizerManager {
 
     fun initContext(context: Context) {
         appContext = context.applicationContext
+        // Android 7 (Nougat, API 24/25) & legacy Android: Register global session 0 for system-wide DSP pipeline
+        if (android.os.Build.VERSION.SDK_INT <= android.os.Build.VERSION_CODES.P) {
+            try {
+                registerAudioSessionInternal(0)
+            } catch (e: Exception) {
+                Log.d(TAG, "Global session 0 init: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -84,9 +92,13 @@ object AudioEqualizerManager {
      * Register a newly opened audio session ID (from MediaPlayer or AudioTrack)
      */
     fun registerAudioSession(sessionId: Int) {
-        if (sessionId <= 0) return
+        if (sessionId < 0) return
+        registerAudioSessionInternal(sessionId)
+    }
+
+    private fun registerAudioSessionInternal(sessionId: Int) {
         try {
-            // Notify system audio effect control engine (Required on Android 7)
+            // Notify system audio effect control engine (Crucial on Android 7)
             appContext?.let { ctx ->
                 try {
                     val intent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
@@ -106,8 +118,8 @@ object AudioEqualizerManager {
                 return
             }
 
-            // Create Equalizer with priority 0 (standard and safe across Android 7+ HALs)
-            val eq = Equalizer(0, sessionId).apply {
+            // Create Equalizer with priority 1000 (preempts low-priority defaults across Android 7+ HALs)
+            val eq = Equalizer(1000, sessionId).apply {
                 enabled = _equalizerState.value.isEnabled
             }
 
@@ -134,9 +146,9 @@ object AudioEqualizerManager {
             activeEqualizers[sessionId] = eq
             applyStateToEqualizer(eq, _equalizerState.value)
 
-            // Setup hardware BassBoost
+            // Setup hardware BassBoost (priority 1000)
             try {
-                val bb = BassBoost(0, sessionId)
+                val bb = BassBoost(1000, sessionId)
                 val curState = _equalizerState.value
                 val bbEnabled = curState.isEnabled && curState.bassBoostStrength > 0
                 bb.enabled = bbEnabled
@@ -148,9 +160,9 @@ object AudioEqualizerManager {
                 Log.d(TAG, "BassBoost not supported on session $sessionId: ${e.message}")
             }
 
-            // Setup hardware Virtualizer
+            // Setup hardware Virtualizer (priority 1000)
             try {
-                val virt = Virtualizer(0, sessionId)
+                val virt = Virtualizer(1000, sessionId)
                 val curState = _equalizerState.value
                 val virtEnabled = curState.isEnabled && curState.virtualizerStrength > 0
                 virt.enabled = virtEnabled

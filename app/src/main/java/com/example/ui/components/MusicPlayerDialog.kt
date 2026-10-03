@@ -176,6 +176,8 @@ fun ManagedVideoTexturePlayer(
         }
     }
 
+    var activeLocalSurface by remember { mutableStateOf<Surface?>(null) }
+
     AndroidView(
         factory = { ctx ->
             TextureView(ctx).apply {
@@ -191,6 +193,7 @@ fun ManagedVideoTexturePlayer(
                     ) {
                         textureViewRef = this@apply
                         val surface = Surface(surfaceTexture)
+                        activeLocalSurface = surface
                         VideoPlayerManager.attachSurface(surface)
                         updateMatrix(this@apply, effectiveW, effectiveH)
                     }
@@ -205,7 +208,8 @@ fun ManagedVideoTexturePlayer(
 
                     override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
                         textureViewRef = null
-                        VideoPlayerManager.detachSurface()
+                        activeLocalSurface?.let { VideoPlayerManager.detachSurface(it) }
+                        activeLocalSurface = null
                         return true
                     }
 
@@ -224,7 +228,8 @@ fun ManagedVideoTexturePlayer(
 
     DisposableEffect(Unit) {
         onDispose {
-            VideoPlayerManager.detachSurface()
+            activeLocalSurface?.let { VideoPlayerManager.detachSurface(it) }
+            activeLocalSurface = null
         }
     }
 }
@@ -771,16 +776,18 @@ fun MusicPlayerDialog(
                                     ) {
                                         Button(
                                             onClick = {
+                                                val curVol = videoState.volume
                                                 viewModel.previewBackgroundVideo(
                                                     ChimeVideoSourceType.CUSTOM_FILE,
                                                     customVideoPath = currentVid.filePath,
                                                     customVideoName = currentVid.name,
                                                     playVideoAudio = true,
-                                                    volume = videoState.volume,
+                                                    volume = curVol,
                                                     durationSeconds = 0,
                                                     displayLayer = VideoDisplayLayer.FOREGROUND
                                                 )
                                                 Toast.makeText(context, "前面フルスクリーンで再生中", Toast.LENGTH_SHORT).show()
+                                                onDismiss()
                                             },
                                             modifier = Modifier.weight(1f),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.Black),
@@ -1500,16 +1507,18 @@ fun MusicPlayerDialog(
 
                                                         Button(
                                                             onClick = {
+                                                                val curVol = videoState.volume
                                                                 viewModel.previewBackgroundVideo(
                                                                     ChimeVideoSourceType.CUSTOM_FILE,
                                                                     customVideoPath = video.filePath,
                                                                     customVideoName = video.name,
                                                                     playVideoAudio = true,
-                                                                    volume = videoState.volume,
+                                                                    volume = curVol,
                                                                     durationSeconds = 0,
                                                                     displayLayer = VideoDisplayLayer.FOREGROUND
                                                                 )
                                                                 Toast.makeText(context, "前面全画面で動画を再生中", Toast.LENGTH_SHORT).show()
+                                                                onDismiss()
                                                             },
                                                             modifier = Modifier.weight(1f),
                                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0x22FFFFFF), contentColor = Color.White),
